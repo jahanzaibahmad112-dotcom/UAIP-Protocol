@@ -20,12 +20,23 @@ To run the UAIP Gateway locally:
 2. Install requirements: `pip install fastapi uvicorn pynacl requests`
 3. Run the gateway: `python gateway.py`
 
-## 📈 Roadmap
-- [x] Protocol Specification
-- [x] Security & Identity Layer
-- [x] Settlement & Escrow Engine
-- [ ] Global Discovery Service (In Development)
-- [ ] Semantic Translation Engine (In Development)
+📈 UAIP Roadmap: The Path to the Universal Agent Mesh
+✅ Phase 1: Core Foundations (Complete)
+Protocol Specification: Defined the agent.json universal manifest.
+Security & Identity Layer: Implemented Ed25519 cryptographic passports and anti-replay protection.
+Settlement & Escrow Engine: Developed the atomic "Work-for-Payment" swap logic with Decimal precision.
+✅ Phase 2: The Intelligent Network (Complete)
+Global Discovery Service (GDS): Launched the "Yellow Pages for AI" with reputation-based ranking.
+Semantic Translation Engine (STE): Deployed Just-In-Time (JIT) schema mapping to bridge different AI model "dialects."
+🚀 Phase 3: Enterprise Hardening (Next 90 Days)
+Cross-Cloud Sovereignty: Enabling seamless handshakes between AWS Bedrock, Azure AI, and GCP Vertex agents.
+ZK-Privacy Layers: Implementing Zero-Knowledge Proofs so agents can verify capabilities without exposing proprietary data.
+Multi-Modal Support: Expanding the protocol to handle Image, Video, and Voice-to-Action agentic requests.
+🌐 Phase 4: The Autonomous Economy (2026-2027 Vision)
+Agentic Financial Networks: Native integration with L2 stablecoin rails for sub-cent global micro-settlements.
+Sovereign Agent Identity (SAI): Moving from Gateway-hosted IDs to fully decentralized, owner-less agent identities.
+Human-in-the-Loop (HITL) Arbitration: A protocol layer for human "judges" to resolve disputes in agentic contracts.
+
 
 ## 🤝 Community & Support
 This is a protocol, not just a product. We welcome developers, economists, and AI researchers to help build the future of the agentic economy.
