@@ -21,7 +21,9 @@ As AI moves from chatbots to autonomous agents, two massive problems emerge:
 - `/sdk`: A single library to connect and protect any AI agent.
 - `/policy`: The intelligence layer for autonomous risk evaluation.
 
-## 📈 Roadmap
-- [x] Merged Interop & Security Core
-- [ ] ZK-Privacy for Agent Data (In Progress)
-- [ ] Multi-chain Payment Settlement (Q3 2026)
+## 📈 Roadmap (100% Core Complete)
+- [x] **UAIP Core Protocol:** Universal Agent Interoperability.
+- [x] **AgentGuard Security:** Intelligent HITL & 95% Auto-Governance.
+- [x] **ZK-Privacy Layer:** Zero-Knowledge proofs for sensitive data.
+- [x] **Multi-chain Settlement:** Cross-chain payment support (Base, Solana, ETH).
+- [x] **Developer SDK:** The all-in-one toolkit for secure agent trade.
