@@ -49,22 +49,47 @@
 
 ## **🚦 Quick Start**
 
-### **1. Install Dependencies**
+### **1. Prerequisites**
+The UAIP environment requires **Python 3.10+** and the following high-performance libraries:
 ```bash
 pip install fastapi uvicorn pynacl requests
-2. Launch the Secure Clearing House
+2. Launching the Secure Gateway
+The Gateway acts as the Central Clearing House and Governance Dashboard.
 code
 Bash
+# Start the Gateway Server
 python gateway.py
-Access the Governance Dashboard at http://localhost:8000
-3. Run the Interoperability Demo
+Once initialized, navigate to http://localhost:8000 to access the Live AgentGuard Command Center.
+3. Executing the Interoperability Demo
+Run the pre-configured simulation to witness cross-company agent trade, JIT authorization, and automated compliance auditing.
 code
 Bash
+# Run the end-to-end showcase
 python demo.py
-🛡️ Security & Governance
-Manual Termination: One-click "Kill-Switch" on the dashboard to revoke any agent's identity.
-Intent Verification: AI-driven analysis to ensure agent actions match their stated goals.
-⚖️ Legal Disclaimer
-IMPORTANT: This software is a technical framework and does not constitute legal or financial advice. AI models can produce errors. Always consult a qualified legal team before processing real-world currency or sensitive data.
-🤝 License
-This project is licensed under the Functional Source License (FSL). It is free for individuals and small teams, but requires a commercial license for competitors building a managed service.
+📂 Developer Integration
+Integrating a new agent into the UAIP Mesh takes less than 120 seconds.
+code
+Python
+from sdk import UAIP_Enterprise_SDK
+
+# 1. Onboard your agent with a Cryptographic DID
+agent = UAIP_Enterprise_SDK(agent_name="FinanceBot", company_name="OpenAI")
+
+# 2. Execute a secure, governed cross-agent transaction
+# This automatically handles JIT Authorization, ZK-Privacy, and Multi-chain Settlement.
+agent.call_agent(
+    task="verify_invoice", 
+    amount=50.00, 
+    intent="Processing Q1 vendor payments",
+    chain="BASE"
+)
+⚖️ Compliance & Legal
+Forensic Auditability: Every transaction is analyzed by our RAG-enabled ComplianceAuditor. Logs are mapped against the EU AI Act and SOC2 frameworks to ensure defensible autonomous operations.
+Disclaimer: UAIP + AgentGuard is a technical infrastructure framework. It does not constitute legal or financial advice. All users are strictly advised to consult with their legal counsel regarding the deployment of autonomous financial agents in regulated jurisdictions.
+🛡️ Licensing & Commercial Use
+This project is licensed under the Functional Source License (FSL).
+Personal/Dev Use: Free and Open.
+Commercial/Competitive Use: Requires a licensing agreement.
+UAIP: The Safe Highway for the Autonomous Economy. 🏁
+
+
