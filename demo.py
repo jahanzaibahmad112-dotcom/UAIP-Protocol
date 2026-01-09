@@ -1,11 +1,15 @@
 from sdk import UAIP_Secure_SDK
 
-client = UAIP_Secure_SDK(agent_id="Founder_Bot")
+# Now you just give the agent a human name
+# The SDK creates the 'did:uaip:...' automatically!
+client = UAIP_Secure_SDK(agent_name="Founder_Agent_01")
 
-print("\n--- RUNNING DEMO ---")
+print("\n--- 🦾 TESTING SECURE IDENTITY ---")
 
-print("Task 1: Small request...")
-print(client.call("Get Weather", 0.05))
+# Task 1: A routine query
+print("\n[Step 1] Requesting Weather Data...")
+print(client.call("get_weather", 0.05))
 
-print("\nTask 2: Large Bank Transfer...")
-print(client.call("Transfer Funds", 5000.0))
+# Task 2: A risky bank transfer
+print("\n[Step 2] Requesting Large Transfer...")
+print(client.call("withdraw_funds", 5000.0))
