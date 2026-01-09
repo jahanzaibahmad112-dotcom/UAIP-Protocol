@@ -49,33 +49,50 @@
 
 ---
 
-## 🚦 Quick Start Guide
+🚦 Quick Start Guide
 
 Deploy the UAIP Gateway and execute your first secure, governed agent transaction in under three minutes.
 
-### 1. Environment Setup
-Ensure you have **Python 3.10+** installed. Install the high-performance core dependencies via pip:
+1️⃣ Environment Setup
 
-```bash
+Ensure you have Python 3.10+ installed. Install the high-performance core dependencies via pip:
+
 pip install fastapi uvicorn pynacl requests
 
-2. Launch the Secure Clearing House
+2️⃣ Launch the Secure Clearing House
+
 The Gateway acts as the central Governance Hub and Audit Log. Start the server to initialize the network:
 
 # Start the UAIP Gateway Server
 python gateway.py
 
-Observability: Once initialized, navigate to http://localhost:8000 to access the live AgentGuard Command Center.
+🔍 Observability
 
-3. Execute the Interoperability Demo
-Run the end-to-end simulation to witness cross-company agent trade, JIT Authorization, and automated compliance reporting:
+Once initialized, navigate to:
+
+http://localhost:8000
+
+
+to access the live AgentGuard Command Center.
+
+3️⃣ Execute the Interoperability Demo
+
+Run the end-to-end simulation to witness:
+
+Cross-company agent trade
+
+Just-In-Time (JIT) Authorization
+
+Automated compliance reporting
 
 # Run the end-to-end showcase
 python demo.py
 
 📂 Developer Integration
+
 UAIP is designed for seamless developer onboarding. Integrate any autonomous agent into the secure mesh using our standardized SDK.
-Standard Integration Path
+
+🔧 Standard Integration Path
 from sdk import UAIP_Enterprise_SDK
 
 # 1. Onboard your agent with a Cryptographic DID Passport
@@ -92,9 +109,13 @@ agent.call_agent(
 )
 
 🛡️ Licensing & Commercial Use
+
 This project is licensed under the Functional Source License (FSL) to ensure the protocol remains open while protecting the ecosystem's commercial integrity.
+
 Use Case	License Terms
 Personal & Development	Free & Open Source
 Internal Business Tools	Free & Open Source
 Commercial Managed Services	Requires Licensing Agreement
-UAIP Mesh: The Secure Highway for the Autonomous Economy. 🏁
+🌐 UAIP Mesh
+
+UAIP Mesh is the Secure Highway for the Autonomous Economy. 🏁
