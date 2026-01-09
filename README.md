@@ -47,49 +47,54 @@
 
 ---
 
-## **🚦 Quick Start**
+---
 
-### **1. Prerequisites**
-The UAIP environment requires **Python 3.10+** and the following high-performance libraries:
+## 🚦 Quick Start Guide
+
+Deploy the UAIP Gateway and execute your first secure, governed agent transaction in under three minutes.
+
+### 1. Environment Setup
+Ensure you have **Python 3.10+** installed. Install the high-performance core dependencies via pip:
+
 ```bash
 pip install fastapi uvicorn pynacl requests
-2. Launching the Secure Gateway
-The Gateway acts as the Central Clearing House and Governance Dashboard.
-code
-Bash
-# Start the Gateway Server
+
+2. Launch the Secure Clearing House
+The Gateway acts as the central Governance Hub and Audit Log. Start the server to initialize the network:
+
+# Start the UAIP Gateway Server
 python gateway.py
-Once initialized, navigate to http://localhost:8000 to access the Live AgentGuard Command Center.
-3. Executing the Interoperability Demo
-Run the pre-configured simulation to witness cross-company agent trade, JIT authorization, and automated compliance auditing.
-code
-Bash
+
+Observability: Once initialized, navigate to http://localhost:8000 to access the live AgentGuard Command Center.
+
+3. Execute the Interoperability Demo
+Run the end-to-end simulation to witness cross-company agent trade, JIT Authorization, and automated compliance reporting:
+
 # Run the end-to-end showcase
 python demo.py
+
 📂 Developer Integration
-Integrating a new agent into the UAIP Mesh takes less than 120 seconds.
-code
-Python
+UAIP is designed for seamless developer onboarding. Integrate any autonomous agent into the secure mesh using our standardized SDK.
+Standard Integration Path
 from sdk import UAIP_Enterprise_SDK
 
-# 1. Onboard your agent with a Cryptographic DID
+# 1. Onboard your agent with a Cryptographic DID Passport
+# This registers the agent in the Global Discovery Service (Layer 1)
 agent = UAIP_Enterprise_SDK(agent_name="FinanceBot", company_name="OpenAI")
 
 # 2. Execute a secure, governed cross-agent transaction
-# This automatically handles JIT Authorization, ZK-Privacy, and Multi-chain Settlement.
+# Automatically handles JIT Authorization, ZK-Privacy, and Multi-chain Settlement.
 agent.call_agent(
     task="verify_invoice", 
     amount=50.00, 
     intent="Processing Q1 vendor payments",
     chain="BASE"
 )
-⚖️ Compliance & Legal
-Forensic Auditability: Every transaction is analyzed by our RAG-enabled ComplianceAuditor. Logs are mapped against the EU AI Act and SOC2 frameworks to ensure defensible autonomous operations.
-Disclaimer: UAIP + AgentGuard is a technical infrastructure framework. It does not constitute legal or financial advice. All users are strictly advised to consult with their legal counsel regarding the deployment of autonomous financial agents in regulated jurisdictions.
+
 🛡️ Licensing & Commercial Use
-This project is licensed under the Functional Source License (FSL).
-Personal/Dev Use: Free and Open.
-Commercial/Competitive Use: Requires a licensing agreement.
-UAIP: The Safe Highway for the Autonomous Economy. 🏁
-
-
+This project is licensed under the Functional Source License (FSL) to ensure the protocol remains open while protecting the ecosystem's commercial integrity.
+Use Case	License Terms
+Personal & Development	Free & Open Source
+Internal Business Tools	Free & Open Source
+Commercial Managed Services	Requires Licensing Agreement
+UAIP Mesh: The Secure Highway for the Autonomous Economy. 🏁
