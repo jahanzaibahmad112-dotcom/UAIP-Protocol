@@ -1,69 +1,37 @@
 from decimal import Decimal
 import uuid
-import time
 
-class MultiChainSettlement:
+class SettlementEngine:
     """
-    The UAIP Multi-chain Settlement Engine.
-    Handles high-precision payments across different blockchain rails.
+    Multi-Chain Settlement Layer.
+    Handles USD conversion, 0.5% Protocol Tax, and Cross-chain delivery.
     """
-    
     def __init__(self):
-        # Supported chains for the 2026 AI Economy
+        self.protocol_fee_rate = Decimal('0.005') # 0.5% Transaction Tax
+        self.hq_wallet = "did:uaip:protocol_hq_treasury"
         self.supported_chains = ["BASE", "SOLANA", "ETHEREUM"]
-        
-        # Internal ledgers
-        self.wallets = {}      # {agent_id: {"chain": "BASE", "balance": Decimal}}
-        self.escrow_vault = {} # {contract_id: {"amount": Decimal, "target_chain": str}}
 
-    def create_wallet(self, agent_id, chain="BASE", initial_funds=0.0):
-        if chain not in self.supported_chains:
-            raise ValueError(f"Unsupported chain. Choose from: {self.supported_chains}")
+    def process_transaction(self, payer_id, amount_usd, payee_id, target_chain):
+        if target_chain not in self.supported_chains:
+            raise ValueError("Unsupported Blockchain Rail")
+
+        total = Decimal(str(amount_usd))
         
-        self.wallets[agent_id] = {
-            "chain": chain,
-            "balance": Decimal(str(initial_funds))
+        # 1. Simulate USD -> USDC conversion via Circle SDK
+        print(f"🌉 Bridge: Converting ${total} USD to USDC on {target_chain}...")
+
+        # 2. Split the 0.5% Protocol Tax (Your Profit)
+        fee = total * self.protocol_fee_rate
+        final_payout = total - fee
+
+        # 3. Simulate On-Chain Transfer
+        tx_id = f"tx_{uuid.uuid4().hex[:10]}"
+        print(f"💰 TAX COLLECTED: {fee} USDC moved to {self.hq_wallet}")
+        print(f"💰 SETTLED: {final_payout} USDC moved to {payee_id}")
+
+        return {
+            "tx_id": tx_id,
+            "fee_collected": float(fee),
+            "payout": float(final_payout),
+            "status": "SETTLED_ON_CHAIN"
         }
-        return True
-
-    def lock_funds_cross_chain(self, payer_id, amount, target_chain):
-        """
-        Locks funds and prepares for cross-chain bridging if necessary.
-        """
-        amount_dec = Decimal(str(amount))
-        
-        if payer_id not in self.wallets or self.wallets[payer_id]["balance"] < amount_dec:
-            raise ValueError("Insufficient funds on source chain.")
-
-        # Simulate a Bridge if chains are different
-        source_chain = self.wallets[payer_id]["chain"]
-        if source_chain != target_chain:
-            print(f"🌉 BRIDGE: Initiating transfer from {source_chain} to {target_chain}...")
-
-        contract_id = f"tx_{uuid.uuid4().hex[:8]}"
-        
-        # Move funds from wallet to escrow
-        self.wallets[payer_id]["balance"] -= amount_dec
-        self.escrow_vault[contract_id] = {
-            "amount": amount_dec,
-            "target_chain": target_chain,
-            "payer": payer_id,
-            "timestamp": time.time()
-        }
-        
-        return contract_id
-
-    def release_funds(self, contract_id, payee_id):
-        """Finalizes payment to the provider agent."""
-        if contract_id not in self.escrow_vault:
-            return False
-            
-        data = self.escrow_vault.pop(contract_id)
-        
-        # Ensure payee has a wallet on the target chain
-        if payee_id not in self.wallets:
-            self.create_wallet(payee_id, chain=data["target_chain"])
-            
-        self.wallets[payee_id]["balance"] += data["amount"]
-        print(f"💰 PAID: {data['amount']} USDC settled to {payee_id} on {data['target_chain']}")
-        return True
