@@ -49,26 +49,26 @@ We enable the **Autonomous Economy** by providing the safety rails and financial
 | **`privacy.py`** | **The Vault** | Zero-Knowledge (ZK-Lite) proof generation for data privacy. |
 
 ---
+---
 
 ## 🚦 Quick Start
 
 Execute your first governed agent transaction in under three minutes.
 
-### 1. Installation
-Ensure you have **Python 3.10+** installed. Install the core dependencies:
+### **Step 1: Installation**
+Ensure you have **Python 3.10+** environment ready. Install the core networking and security dependencies:
 
 ```bash
 pip install fastapi uvicorn pynacl requests
-
-2. Launch the Secure Gateway
-The Gateway acts as the central Clearing House and Command Center. Run the following command:
+Step 2: Launch the Secure Gateway
+The Gateway serves as the central Clearing House and Governance Hub.
 code
 Bash
 python gateway.py
 [!TIP]
-Once the server is running, navigate to http://localhost:8000 in your browser to access the live AgentGuard Dashboard.
-3. Run the Interoperability Demo
-In a separate terminal, run the simulation to witness cross-company agent trade and automated auditing:
+Once the server is initialized, navigate to http://localhost:8000 in your browser to access the live AgentGuard Dashboard.
+Step 3: Execute the Interoperability Demo
+In a separate terminal window, run the simulation to witness cross-company agent trade and automated auditing:
 code
 Bash
 python demo.py
@@ -83,7 +83,7 @@ from sdk import UAIP_Enterprise_SDK
 agent = UAIP_Enterprise_SDK(agent_name="FinanceBot", company_name="OpenAI")
 
 # 2. Execute a secure, governed transaction
-# This handles JIT Authorization, ZK-Privacy, and Multi-chain Settlement.
+# Automatically handles JIT Authorization, ZK-Privacy, and Multi-chain Settlement.
 agent.call_agent(
     task="verify_invoice", 
     amount=50.00, 
@@ -96,7 +96,7 @@ UAIP provides Audit-as-a-Code. Every transaction is analyzed in real-time by our
 [!IMPORTANT]
 Legal Disclaimer: UAIP + AgentGuard is a technical infrastructure framework and does not constitute legal or financial advice. All users must consult with qualified legal counsel regarding the deployment of autonomous financial agents. AI models can produce errors; human oversight is mandatory.
 🛡️ Licensing & Commercial Use
-This project is protected under the Functional Source License (FSL).
+This project is protected under the Functional Source License (FSL) to ensure the protocol remains open while protecting commercial integrity.
 Use Case	Terms
 Personal & Development	Free & Open Source
 Internal Business Usage	Free & Open Source
