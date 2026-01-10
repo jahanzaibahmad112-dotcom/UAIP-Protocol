@@ -13,12 +13,12 @@ from privacy import ZK_Privacy
 
 app = FastAPI(title="UAIP Master Gateway")
 
-# --- 1. CONFIGURATION & SECURITY ---
+# --- CONFIGURATION ---
 ADMIN_KEY = os.getenv("ADMIN_KEY", "uaip-secret-123")
 DB_PATH = "uaip_vault.db"
 UAIP_VERSION = "1.0.0"
 
-# --- 2. DATA MODELS (MUST BE DEFINED FIRST) ---
+# --- 2. DATA MODELS ---
 class UAIPPacket(BaseModel):
     sender_id: str
     task: str
@@ -54,13 +54,14 @@ def init_db():
         c.execute('CREATE TABLE IF NOT EXISTS nonces (id TEXT PRIMARY KEY, ts REAL)')
         c.execute('CREATE TABLE IF NOT EXISTS pending (id TEXT PRIMARY KEY, status TEXT, request_json TEXT, version TEXT)')
         c.execute('CREATE TABLE IF NOT EXISTS lockouts (ip TEXT PRIMARY KEY, attempts INTEGER, lockout_until REAL)')
+        # Table with 'law' column for RAG
         c.execute('CREATE TABLE IF NOT EXISTS action_logs (id TEXT PRIMARY KEY, sender TEXT, task TEXT, amount TEXT, decision TEXT, law TEXT, ts REAL)')
         c.execute('CREATE TABLE IF NOT EXISTS blacklist (did TEXT PRIMARY KEY, ts REAL)')
 
 init_db()
 
-# --- 4. MAINTENANCE (Background Garbage Collector) ---
-def cleanup():
+# --- 4. MAINTENANCE ---
+def cleanup_task():
     while True:
         try:
             with db_session() as conn:
@@ -68,9 +69,9 @@ def cleanup():
                 conn.execute('DELETE FROM action_logs WHERE ts < ?', (time.time() - 86400,))
         except: pass
         time.sleep(60)
-threading.Thread(target=cleanup, daemon=True).start()
+threading.Thread(target=cleanup_task, daemon=True).start()
 
-# --- 5. SECURE ENDPOINTS ---
+# --- 5. ENDPOINTS ---
 
 @app.post("/v1/register")
 async def register(req: dict):
@@ -91,75 +92,77 @@ async def execute(req: UAIPPacket):
     auditor = ComplianceAuditor()
 
     with db_session() as conn:
-        # A. Identity & Blacklist Check
         if conn.execute('SELECT did FROM blacklist WHERE did=?', (req.sender_id,)).fetchone():
-            raise HTTPException(status_code=403, detail="TERMINATED")
+            raise HTTPException(status_code=403, detail="BLACKLISTED")
         
         try:
             conn.execute('INSERT INTO nonces VALUES (?, ?)', (req.nonce, now))
         except: raise HTTPException(status_code=403, detail="REPLAY")
 
-        # B. Cryptographic Handshake
         try:
             vk = nacl.signing.VerifyKey(req.public_key, encoder=nacl.encoding.HexEncoder)
             msg = json.dumps(req.data, sort_keys=True, separators=(',', ':')).encode('utf-8')
             vk.verify(msg, bytes.fromhex(req.signature))
-            
             agent = conn.execute('SELECT zk_commitment FROM inventory WHERE did=?', (req.sender_id,)).fetchone()
             if not agent or not ZK_Privacy.verify_proof(req.zk_proof, int(agent['zk_commitment'])): raise Exception()
         except: raise HTTPException(status_code=401, detail="IDENTITY_ERROR")
 
-        # C. Compliance Audit (Active Enforcer)
+        # ACTIVE ENFORCER
         audit_status, audit_report = auditor.run_active_audit({"sender": req.sender_id, "task": req.task, "amount": req.amount})
-
         if audit_status == "TERMINATE":
             conn.execute('INSERT OR REPLACE INTO blacklist VALUES (?, ?)', (req.sender_id, now))
-            raise HTTPException(status_code=451, detail="LEGAL_TERMINATION")
+            raise HTTPException(status_code=451)
 
-        # D. Governance Logic
         decision = "PENDING" if (amount_dec >= 1000 or audit_status == "PENDING_ENFORCED") else "ALLOW"
-        # NANO-TASK BYPASS (Fixed $0.05 annoyance)
         if amount_dec < 10 and audit_status != "TERMINATE": decision = "ALLOW"
 
         req_id = str(uuid.uuid4())[:8]
-        conn.execute('INSERT INTO action_logs VALUES (?, ?, ?, ?, ?, ?, ?)',
+        conn.execute('INSERT INTO action_logs (id, sender, task, amount, decision, law, ts) VALUES (?, ?, ?, ?, ?, ?, ?)',
                      (req_id, html.escape(req.sender_id), html.escape(req.task), str(amount_dec), decision, audit_report['grounded_law'], now))
 
         if decision == "PENDING":
-            conn.execute('INSERT INTO pending VALUES (?, ?, ?, ?)', (req_id, "WAITING", req.json(), UAIP_VERSION))
+            conn.execute('INSERT INTO pending (id, status, request_json, version) VALUES (?, ?, ?, ?)', (req_id, "WAITING", req.json(), UAIP_VERSION))
             return {"status": "PAUSED", "request_id": req_id}
 
-        # E. Settlement
-        UAIPFinancialEngine().process_settlement(req.sender_id, amount_dec, "provider_node", req.chain)
+        UAIPFinancialEngine().process_settlement(req.sender_id, amount_dec, "provider_01", req.chain)
         return {"status": "SUCCESS"}
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
-    with db_session() as conn:
-        logs_data = conn.execute('SELECT * FROM action_logs ORDER BY ts DESC LIMIT 15').fetchall()
-
     rows = ""
-    for l in logs_data:
-        color = "green" if l['decision'] in ["ALLOW", "HUMAN_APPROVED"] else "orange"
-        action_ui = f"<button onclick=\"auth('{l['id']}')\">Approve</button>" if l['decision'] == "PENDING" else "✅ PAID"
+    try:
+        with db_session() as conn:
+            logs_data = conn.execute('SELECT * FROM action_logs ORDER BY ts DESC LIMIT 15').fetchall()
         
-        rows += f"""
-        <tr>
-            <td>{l['sender']}</td>
-            <td>{l['task']}</td>
-            <td><b>${l['amount']}</b></td>
-            <td style='color:{color}'>{l['decision']}</td>
-            <td style='font-size: 0.85em; color: #8b949e;'>{l['law']}</td>
-            <td>{action_ui}</td>
-        </tr>
-        """
-    
+        for l in logs_data:
+            # Defensive check for missing keys
+            d_sender = l['sender'] if 'sender' in l.keys() else "Unknown"
+            d_task = l['task'] if 'task' in l.keys() else "Unknown"
+            d_amount = l['amount'] if 'amount' in l.keys() else "0.0"
+            d_decision = l['decision'] if 'decision' in l.keys() else "UNKNOWN"
+            d_law = l['law'] if 'law' in l.keys() else "N/A"
+            
+            color = "green" if d_decision in ["ALLOW", "HUMAN_APPROVED"] else "orange"
+            action_ui = f"<button onclick=\"auth('{l['id']}')\">Approve</button>" if d_decision == "PENDING" else "✅ PAID"
+            
+            rows += f"""
+            <tr>
+                <td>{d_sender}</td>
+                <td>{d_task}</td>
+                <td><b>${d_amount}</b></td>
+                <td style='color:{color}'>{d_decision}</td>
+                <td style='font-size: 0.85em; color: #8b949e;'>{d_law}</td>
+                <td>{action_ui}</td>
+            </tr>
+            """
+    except Exception as e:
+        rows = f"<tr><td colspan='6'>Database Error: {str(e)}. Please delete uaip_vault.db and restart.</td></tr>"
+
     return f"""
     <html>
         <head><meta http-equiv='refresh' content='5'><style>body{{background:#0d1117;color:white;font-family:sans-serif;padding:40px;}} table{{width:100%;border-collapse:collapse;}} td,th{{padding:12px;border-bottom:1px solid #333;text-align:left;}} button{{background:#238636;color:white;border:none;padding:8px;cursor:pointer;border-radius:4px;}}</style></head>
         <body>
             <h1>🛡️ AgentGuard Master Dashboard</h1>
-            <p>Shield: TITAN-ULTIMA | Compliance: Llama-3-Legal RAG | Governance: JIT Enabled</p>
             <table><thead><tr><th>Agent DID</th><th>Intent</th><th>Value</th><th>Status</th><th>Legal Grounding (RAG)</th><th>Action</th></tr></thead><tbody>{rows}</tbody></table>
             <script>
                 async function auth(id) {{
@@ -168,7 +171,7 @@ async def dashboard():
                     const res = await fetch('/v1/decision/'+id+'/allow', {{ method:'POST', headers:{{'X-Admin-Key':k}} }});
                     const d = await res.json();
                     if(d.status === 'SETTLED') {{ alert('✅ Success: Funds Released'); location.reload(); }}
-                    else {{ alert('❌ Denied'); }}
+                    else {{ alert('❌ Error: Unauthorized'); }}
                 }}
             </script>
         </body>
@@ -178,16 +181,12 @@ async def dashboard():
 async def manual_decision(request: Request, req_id: str, choice: str, x_admin_key: str = Header(None)):
     with db_session() as conn:
         if not secrets.compare_digest(x_admin_key or "", ADMIN_KEY): raise HTTPException(status_code=401)
-
         cursor = conn.execute('UPDATE pending SET status="APPROVED" WHERE id=? AND status="WAITING"', (req_id,))
         if cursor.rowcount == 0 or choice != "allow": raise HTTPException(status_code=400)
-
         txn = conn.execute('SELECT request_json FROM pending WHERE id=?', (req_id,)).fetchone()
         r = json.loads(txn['request_json'])
-        
-        UAIPFinancialEngine().process_settlement(r['sender_id'], Decimal(r['amount']), "provider_node", r['chain'])
+        UAIPFinancialEngine().process_settlement(r['sender_id'], Decimal(r['amount']), "provider_01", r['chain'])
         conn.execute('UPDATE action_logs SET decision="HUMAN_APPROVED" WHERE id=?', (req_id,))
-
     return {"status": "SETTLED"}
 
 @app.get("/v1/check/{req_id}")
