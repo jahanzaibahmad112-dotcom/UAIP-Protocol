@@ -750,3 +750,6 @@ async def dashboard():
                     }}
                 }}
             </script>
+        </body>
+    </html>
+    """
