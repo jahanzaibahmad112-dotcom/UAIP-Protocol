@@ -3,50 +3,46 @@ import uuid
 
 class UAIPFinancialEngine:
     """
-    UAIP Multi-Chain Settlement with Dynamic Profit Protection.
-    Ensures the protocol never loses money on 'Gas Fees' for micro-tasks.
+    UAIP Multi-Chain Settlement & Revenue Module.
+    Implements a 3-Tiered Profit Model optimized for 2026 Agentic Commerce.
     """
     def __init__(self):
-        self.protocol_fee_rate = Decimal('0.005') # 0.5% Standard Tax
         self.hq_treasury_did = "did:uaip:protocol_hq_treasury_0x71C"
         
-        # --- NEW: CHAIN-SPECIFIC MINIMUM FEES ---
-        # We set a 'Floor' so we always make a profit.
-        self.min_fees = {
-            "BASE": Decimal('0.001'),     # $0.001 - Very cheap for nano-tasks
-            "SOLANA": Decimal('0.001'),   # $0.001 - High speed, low cost
-            "ETHEREUM": Decimal('2.00')   # $2.00 - High cost to cover L1 Gas
-        }
+        # --- NEW PROFIT TIERS ---
+        self.nano_flat_fee = Decimal('0.01')      # Tier A: $0.01 flat
+        self.mid_tax_rate = Decimal('0.01')       # Tier B: 1.0% 
+        self.enterprise_tax_rate = Decimal('0.005') # Tier C: 0.5%
+        self.governance_flat_fee = Decimal('10.0')  # Tier C: $10.00 flat
+        
+    def calculate_protocol_revenue(self, amount: Decimal):
+        """Logic for the 3-Tiered Profit Strategy"""
+        # Tier A: Nano-Tasks ($0.01 to $10.00)
+        if amount <= 10:
+            return self.nano_flat_fee
+            
+        # Tier B: Secure B2B ($10.01 to $10,000.00)
+        if amount <= 10000:
+            return amount * self.mid_tax_rate
+            
+        # Tier C: Enterprise Whale (> $10,000.00)
+        return (amount * self.enterprise_tax_rate) + self.governance_flat_fee
 
     def settle_transaction(self, payer_id: str, amount_usd: float, payee_did: str, chain: str):
-        chain = chain.upper()
-        if chain not in self.min_fees:
-            raise ValueError(f"Unsupported Chain: {chain}")
-
         total_amount = Decimal(str(amount_usd))
         
-        # --- THE PROFIT PROTECTION LOGIC ---
-        # 1. Calculate the standard 0.5% fee
-        calculated_tax = total_amount * self.protocol_fee_rate
-        
-        # 2. Compare it against the 'Chain Floor' (The Fix)
-        # max() picks whichever is higher: the % or the minimum.
-        min_fee = self.min_fees[chain]
-        tax_amount = max(calculated_tax, min_fee).quantize(Decimal('0.000001'))
-        
+        # 1. Execute Tiered Fee Calculation
+        tax_amount = self.calculate_protocol_revenue(total_amount).quantize(Decimal('0.000001'))
         payout_amount = total_amount - tax_amount
 
-        # Security Check: Ensure the tax isn't bigger than the whole payment!
-        if tax_amount >= total_amount:
-             print(f"⚠️ WARNING: Transaction for {total_amount} is too small for {chain} fees.")
-             # In a real system, you might block this or warn the user.
+        # Security Check: Prevent 'Negative Payouts' on extremely small errors
+        if payout_amount < 0: payout_amount = Decimal('0.00')
 
         tx_id = f"uaip_tx_{chain.lower()}_{uuid.uuid4().hex[:10]}"
 
-        print(f"--- 🌉 UAIP SETTLEMENT (Min-Fee Active) ---")
-        print(f"Total: {total_amount} | Protocol Tax: {tax_amount} | Payout: {payout_amount}")
-        print(f"Revenue sent to: {self.hq_treasury_did}")
-
+        print(f"--- 🌉 TIERED SETTLEMENT ACTIVE ---")
+        print(f"Amount: ${total_amount} | Tier Revenue: ${tax_amount} | Agent Payout: ${payout_amount}")
+        
         return {
             "tx_id": tx_id,
             "status": "SETTLED",
