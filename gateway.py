@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Header, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from pydantic import BaseModel, validator, Field
+from pydantic import BaseModel, field_validator, Field
 from decimal import Decimal, InvalidOperation
 from contextlib import contextmanager
 import uuid, time, json, html, os, sqlite3, threading, secrets, logging
@@ -85,20 +85,23 @@ class UAIPPacket(BaseModel):
     timestamp: float
     zk_proof: dict
 
-    @validator('chain')
+    @field_validator('chain')
+    @classmethod
     def validate_chain(cls, v):
         if v.upper() not in SUPPORTED_CHAINS:
             raise ValueError(f'Chain must be one of {SUPPORTED_CHAINS}')
         return v.upper()
 
-    @validator('timestamp')
+    @field_validator('timestamp')
+    @classmethod
     def validate_timestamp(cls, v):
         now = time.time()
         if abs(v - now) > 300:
             raise ValueError('Timestamp too far from current time')
         return v
 
-    @validator('amount')
+    @field_validator('amount')
+    @classmethod
     def validate_amount(cls, v):
         try:
             amount = Decimal(v)
@@ -516,12 +519,12 @@ async def dashboard():
             for l in logs_data:
                 stats["total"] += 1
                 
-                d_sender = html.escape(str(l.get('sender', 'Unknown')))[:100]
-                d_task = html.escape(str(l.get('task', 'Unknown')))[:200]
-                d_amount = html.escape(str(l.get('amount', '0.0')))
-                d_decision = str(l.get('decision', 'UNKNOWN'))
-                d_law = html.escape(str(l.get('law', 'N/A')))[:300]
-                d_ts = datetime.fromtimestamp(l.get('ts', 0)).strftime('%Y-%m-%d %H:%M:%S')
+                d_sender = html.escape(str(l['sender'] if 'sender' in l.keys() else 'Unknown'))[:100]
+                d_task = html.escape(str(l['task'] if 'task' in l.keys() else 'Unknown'))[:200]
+                d_amount = html.escape(str(l['amount'] if 'amount' in l.keys() else '0.0'))
+                d_decision = str(l['decision'] if 'decision' in l.keys() else 'UNKNOWN')
+                d_law = html.escape(str(l['law'] if 'law' in l.keys() else 'N/A'))[:300]
+                d_ts = datetime.fromtimestamp(l['ts'] if 'ts' in l.keys() else 0).strftime('%Y-%m-%d %H:%M:%S')
                 
                 if d_decision == "PENDING":
                     stats["pending"] += 1
