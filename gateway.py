@@ -1,138 +1,101 @@
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-import uuid, time, json, html
-from typing import Dict, Any, List
-import nacl.signing
-import nacl.encoding
-
-# --- IMPORT PILLARS ---
+import uuid, time, json, html, os
+import nacl.signing, nacl.encoding
 from settlement import UAIPFinancialEngine
 from compliance import ComplianceAuditor
-from security import UAIPSecurity # Assuming our security logic is here
+from privacy import ZK_Privacy
 
-app = FastAPI(title="UAIP + AgentGuard Hardened Gateway")
+app = FastAPI()
+ADMIN_KEY = "uaip-secret-123"
+DB_FILE = "uaip_state.json"
 
-# --- SYSTEM STATE ---
-bank = UAIPFinancialEngine()
-auditor = ComplianceAuditor()
-action_logs = []
-agent_inventory = {}   # Layer 1: Global Registry
-pending_approvals = {} # Layer 3: Stores the FULL request data for re-triggering
-blacklisted_dids = set()
+# Persistent State Init
+if not os.path.exists(DB_FILE):
+    with open(DB_FILE, "w") as f: json.dump({"inventory": {}, "pending": {}, "nonces": {}}, f)
+
+def access_db(write_data=None):
+    if write_data: 
+        with open(DB_FILE, "w") as f: json.dump(write_data, f)
+    with open(DB_FILE, "r") as f: return json.load(f)
+
+bank, auditor = UAIPFinancialEngine(), ComplianceAuditor()
+logs = []
 
 class UAIPPacket(BaseModel):
-    sender_id: str
-    task: str
-    amount: float
-    chain: str
-    intent: str
-    data: Dict[str, Any]
-    signature: str     # REQUIRED: Cryptographic proof
-    public_key: str    # REQUIRED: For verification
+    sender_id: str; task: str; amount: float; chain: str; intent: str; data: dict
+    signature: str; public_key: str; nonce: str; timestamp: float; zk_proof: dict
 
 @app.post("/v1/register")
-async def register(manifest: Dict):
-    """Layer 1: Onboarding with Public Key registration."""
-    agent_id = manifest.get('agent_id')
-    agent_inventory[agent_id] = manifest
-    return {"status": "REGISTERED"}
+async def register(req: dict):
+    # Deterministic verification of registration
+    try:
+        data, sig, pk = req["registration_data"], req["signature"], req["public_key"]
+        vk = nacl.signing.VerifyKey(pk, encoder=nacl.encoding.HexEncoder)
+        msg = json.dumps(data, sort_keys=True, separators=(',', ':')).encode('utf-8')
+        vk.verify(msg, bytes.fromhex(sig))
+        
+        db = access_db()
+        db["inventory"][data["agent_id"]] = {"zk_commitment": data["zk_commitment"], "public_key": pk}
+        access_db(db)
+        return {"status": "VERIFIED"}
+    except: raise HTTPException(status_code=401)
 
 @app.post("/v1/execute")
-async def execute_task(req: UAIPPacket):
-    # 1. SECURITY: Identity Verification (Fixes Fake ID Vulnerability)
-    if req.sender_id in blacklisted_dids:
-        raise HTTPException(status_code=403, detail="IDENTITY_REVOKED")
-
-    # Verify the signature against the math
-    # In production, we'd fetch the public key from our own registry
-    try:
-        verify_key = nacl.signing.VerifyKey(req.public_key, encoder=nacl.encoding.HexEncoder)
-        msg = json.dumps(req.data, sort_keys=True).encode('utf-8')
-        verify_key.verify(msg, bytes.fromhex(req.signature))
-    except:
-        raise HTTPException(status_code=401, detail="INVALID_CRYPTOGRAPHIC_SIGNATURE")
-
-    request_id = str(uuid.uuid4())[:8]
+async def execute(req: UAIPPacket):
+    db = access_db()
     
-    # 2. GOVERNANCE: Risk Evaluation
-    decision = "ALLOW"
-    if req.amount >= 1000 or "withdraw" in req.task.lower():
-        decision = "PENDING"
+    # 1. Replay & Expiration Check
+    if time.time() - req.timestamp > 60 or req.nonce in db["nonces"]:
+        raise HTTPException(status_code=403, detail="REPLAY_OR_EXPIRED")
+    db["nonces"][req.nonce] = time.time()
 
-    # 3. XSS PROTECTION: Sanitize all inputs before logging (Fixes Dashboard Exploit)
-    safe_task = html.escape(req.task)
-    safe_sender = html.escape(req.sender_id)
+    # 2. Identity & ZK Verification
+    try:
+        vk = nacl.signing.VerifyKey(req.public_key, encoder=nacl.encoding.HexEncoder)
+        msg = json.dumps(req.data, sort_keys=True, separators=(',', ':')).encode('utf-8')
+        vk.verify(msg, bytes.fromhex(req.signature))
+        
+        commitment = db["inventory"].get(req.sender_id, {}).get("zk_commitment")
+        if not ZK_Privacy.verify_proof(req.zk_proof, commitment): raise Exception()
+    except: raise HTTPException(status_code=401, detail="CRYPTO_FAILURE")
 
-    log_entry = {
-        "id": request_id, "time": time.strftime("%H:%M:%S"),
-        "sender": safe_sender, "task": safe_task, "amount": req.amount,
-        "decision": decision, "chain": req.chain
-    }
-    action_logs.insert(0, log_entry)
+    # 3. Governance & XSS Protection
+    decision = "PENDING" if req.amount >= 1000 or any(w in req.task.lower() for w in auditor.risk_keywords) else "ALLOW"
+    log_entry = {"id": str(uuid.uuid4())[:8], "sender": html.escape(req.sender_id), "task": html.escape(req.task), "amount": req.amount, "decision": decision, "chain": req.chain}
+    logs.insert(0, log_entry)
+    auditor.verify_and_audit(log_entry)
 
-    # 4. GHOST APPROVAL FIX: Store the FULL request to re-trigger later
     if decision == "PENDING":
-        pending_approvals[request_id] = {
-            "status": "WAITING",
-            "request_data": req # Save the whole packet
-        }
-        return {"status": "PAUSED", "request_id": request_id}
+        db["pending"][log_entry["id"]] = {"status": "WAITING", "req": req.dict()}
+        access_db(db)
+        return {"status": "PAUSED", "request_id": log_entry["id"]}
 
-    # 5. SETTLEMENT: Process immediate transaction
-    bank.settle_transaction(req.sender_id, req.amount, "provider_01", req.chain)
+    bank.process_settlement(req.sender_id, req.amount, "provider_0x1", req.chain)
+    access_db(db)
     return {"status": "SUCCESS"}
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
-    rows = ""
-    for l in action_logs:
-        color = "green" if "ALLOW" in l['decision'] else "orange"
-        
-        # Approve & Terminate Buttons
-        btn = f"<button onclick=\"decide('{l['id']}','allow')\">Approve</button>" if "PENDING" in l['decision'] else ""
-        kill = f"<button style='background:red;' onclick=\"terminate('{l['sender']}')\">TERMINATE</button>"
-        
-        rows += f"<tr><td>{l['time']}</td><td>{l['sender']}</td><td>{l['task']}</td><td style='color:{color}'>{l['decision']}</td><td>{btn} {kill}</td></tr>"
-
-    return f"<html>... (Include Dashboard HTML here with script below) ... </html>"
+    rows = "".join([f"<tr><td>{l['sender']}</td><td>{l['task']}</td><td>{l['amount']}</td><td style='color:{'green' if l['decision']=='ALLOW' else 'orange'}'>{l['decision']}</td><td><button onclick=\"auth('{l['id']}','allow')\">Approve</button></td></tr>" for l in logs])
+    return f"<html><head><meta http-equiv='refresh' content='5'><style>body{{background:#0d1117;color:white;font-family:sans-serif;padding:40px;}}table{{width:100%;border-collapse:collapse;}}td{{padding:10px;border-bottom:1px solid #333;}}button{{background:#238636;color:white;cursor:pointer; border:none; padding:5px;}}</style></head><body><h1>🛡️ UAIP Master Command Center</h1><table>{rows}</table><script>async def auth(id, val) {{ const k = prompt('Admin Key:'); await fetch('/v1/decision/'+id+'/'+val, {{method:'POST', headers:{{'X-Admin-Key':k}}}}); location.reload(); }}</script></body></html>"
 
 @app.post("/v1/decision/{req_id}/{choice}")
-async def manual_decision(req_id: str, choice: str):
-    """
-    Fixed Approval Logic:
-    If 'allow', it actually triggers the bank settlement.
-    """
-    if req_id not in pending_approvals:
-        return {"error": "Request not found"}
-
-    if choice == "allow":
-        # GET THE SAVED DATA (Fixes Ghost Approval)
-        saved_req = pending_approvals[req_id]["request_data"]
-        
-        # ACTUALLY MOVE THE MONEY
-        bank.settle_transaction(
-            saved_req.sender_id, 
-            saved_req.amount, 
-            "provider_01", 
-            saved_req.chain
-        )
-        
-        pending_approvals[req_id]["status"] = "APPROVED"
-        for l in action_logs:
-            if l['id'] == req_id: l['decision'] = "HUMAN_APPROVED"
-            
-    return {"status": "processed"}
-
-@app.post("/v1/terminate/{did}")
-async def terminate(did: str):
-    blacklisted_dids.add(did)
-    return {"status": "terminated"}
+async def manual_decision(req_id: str, choice: str, x_admin_key: str = Header(None)):
+    if x_admin_key != ADMIN_KEY: raise HTTPException(status_code=401)
+    db = access_db()
+    if req_id in db["pending"] and choice == "allow":
+        r = db["pending"][req_id]["req"]
+        bank.process_settlement(r['sender_id'], r['amount'], "provider_01", r['chain'])
+        db["pending"][req_id]["status"] = "APPROVED"
+        access_db(db)
+        return {"status": "SETTLED"}
+    return {"status": "DENIED"}
 
 @app.get("/v1/check/{req_id}")
 async def check(req_id: str):
-    status = pending_approvals.get(req_id, {}).get("status", "APPROVED")
-    return {"status": status}
+    return {"status": access_db()["pending"].get(req_id, {}).get("status", "PENDING")}
 
 if __name__ == "__main__":
     import uvicorn
