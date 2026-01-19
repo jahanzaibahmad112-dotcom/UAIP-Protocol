@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # UAIP Gateway - The central security hub
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: uaip_gateway
+    ports:
+      - "8000:8000"
+    environment:
+      # CRITICAL: Set this to a strong random string (minimum 32 characters)
+      - ADMIN_KEY=${ADMIN_KEY:-change-this-in-production-minimum-32-chars}
+      
+      # Database configuration
+      - DB_PATH=/data/uaip_vault.db
+      
+      # Security settings
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:8000
+      - ALLOWED_HOSTS=localhost,127.0.0.1,gateway
+      - TRUSTED_PROXIES=
+      
+      # Settlement provider
+      - SETTLEMENT_PROVIDER=provider_01
+    volumes:
+      # Persist database and logs
+      - ./data:/data
+      - ./logs:/app/logs
+    networks:
+      - uaip_network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # Optional: Add a web UI for dashboard (future enhancement)
+  # dashboard:
+  #   image: nginx:alpine
+  #   container_name: uaip_dashboard
+  #   ports:
+  #     - "3000:80"
+  #   volumes:
+  #     - ./dashboard:/usr/share/nginx/html
+  #   networks:
+  #     - uaip_network
+  #   depends_on:
+  #     - gateway
+
+networks:
+  uaip_network:
+    driver: bridge
+
+volumes:
+  uaip_data:
+    driver: local
