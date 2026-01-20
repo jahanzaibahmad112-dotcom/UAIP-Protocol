@@ -440,10 +440,10 @@ result = agent.call_agent(
 
 ## 📞 Support
 
-- 🐛 **Bug reports**: [GitHub Issues](https://github.com/yourusername/uaip-agentguard/issues)
-- 💬 **Questions**: [GitHub Discussions](https://github.com/yourusername/uaip-agentguard/discussions)
-- 📧 **Email**: support@uaip.io
-- 💼 **Enterprise**: enterprise@uaip.io
+- 🐛 **Bug reports**: [GitHub Issues](https://github.com/jahanzaibahmad112-dotom/UAIP-Protocol/issues)
+- 💬 **Questions**: [GitHub Discussions](https://github.com/jahanzaibahmad112-dotom/UAIP-Protocol/discussions)
+- 📧 **Email**: uaip.protocol@gmail.com
+- 💼 **Enterprise**: uaip.protocol@gmail.com
 
 ---
 
