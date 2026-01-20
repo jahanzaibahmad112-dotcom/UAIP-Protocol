@@ -1,0 +1,33 @@
+name: CI 
+# This tells the robot: "Run every time I push code or open a Pull Request"
+on: [push, pull_request]
+
+jobs:
+  test:
+    # This tells the robot: "Rent a virtual computer running Ubuntu (Linux)"
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Robot grabs a copy of your code
+      - uses: actions/checkout@v4
+
+      # Step 2: Robot installs Python version 3.11
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Step 3: Robot installs the 'tools' your code needs to run
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-cov  # Installs the testing tools
+
+      # Step 4: Robot runs your tests and creates a 'Coverage Report'
+      - name: Run Tests
+        run: pytest --cov=./ --cov-report=xml
+
+      # Step 5: Robot sends that report to Codecov.io
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
