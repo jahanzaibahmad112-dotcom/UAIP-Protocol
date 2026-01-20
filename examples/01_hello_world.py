@@ -3,7 +3,7 @@ UAIP Hello World
 The simplest possible example - create an agent and verify its identity.
 """
 
-from uaip import UAIPAgent
+from uaip.sdk import UAIP_Enterprise_SDK
 
 
 def main():
