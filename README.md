@@ -12,6 +12,13 @@
 > That's UAIP. The "TCP/IP for AI agents" with a security-first approach.
 
 ---
+## 📁 Repository Structure
+├── 📚 docs/          - Complete documentation
+├── 🐍 uaip/          - Core Python source code
+├── 📝 examples/      - Working code examples
+├── 🧪 tests/         - Test suite
+├── 🐳 deployment/    - Docker & deployment files
+└── 📋 .github/       - CI/CD workflows
 
 ## 🚀 Quick Start (5 Minutes)
 
