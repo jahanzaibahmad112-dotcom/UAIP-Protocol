@@ -3,7 +3,7 @@ Agent-to-Agent Transaction
 Demonstrates secure payment between two agents from different companies.
 """
 
-from uaip import UAIPAgent
+from uaip.sdk import UAIP_Enterprise_SDK
 
 
 def main():
