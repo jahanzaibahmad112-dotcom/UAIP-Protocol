@@ -29,7 +29,7 @@ except ImportError:
     sys.exit(1)
 
 try:
-    from sdk import UAIP_Enterprise_SDK
+    from uaip.sdk import UAIP_Enterprise_SDK
 except ImportError:
     print("❌ Cannot import UAIP SDK!")
     print("Make sure you're running from the repository root directory")
