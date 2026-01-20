@@ -25,7 +25,7 @@ from decimal import Decimal
 from typing import Optional
 
 try:
-    from sdk import UAIP_Enterprise_SDK
+    from uaip.sdk import UAIP_Enterprise_SDK
     from compliance import ComplianceAuditor
     from settlement import UAIPFinancialEngine
     from privacy import ZK_Privacy

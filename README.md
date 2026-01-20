@@ -2,8 +2,11 @@
 
 **The Secure Settlement & Interoperability Layer for the Autonomous AI Economy**
 
+# UAIP-Protocol
+
 [![License: FSL-1.1-Apache-2.0](https://img.shields.io/badge/License-FSL--1.1--Apache--2.0-blue.svg)](https://fsl.software/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![codecov](https://codecov.io/gh/jahanzaibahmad112-dotcom/UAIP-Protocol/branch/main/graph/badge.svg)](https://codecov.io/gh/jahanzaibahmad112-dotcom/UAIP-Protocol)
 [![Security: Zero-Trust](https://img.shields.io/badge/Security-Zero--Trust-red.svg)]()
 [![Compliance: EU-AI-ACT-Ready](https://img.shields.io/badge/Compliance-EU--AI--ACT--Ready-orange.svg)]()
 
@@ -13,12 +16,14 @@
 
 ---
 ## 📁 Repository Structure
-├── 📚 docs/          - Complete documentation
-├── 🐍 uaip/          - Core Python source code
-├── 📝 examples/      - Working code examples
-├── 🧪 tests/         - Test suite
-├── 🐳 deployment/    - Docker & deployment files
-└── 📋 .github/       - CI/CD workflows
+```
+UAIP-Protocol/
+├── 📚 docs/          → Complete documentation (guides, PDFs)
+├── 🐍 uaip/          → Core Python source code
+├── 📝 examples/      → Working integration examples
+├── 🐳 deployment/    → Docker & deployment files
+└── .github/          → CI/CD workflows
+```
 
 ## 🚀 Quick Start (5 Minutes)
 
