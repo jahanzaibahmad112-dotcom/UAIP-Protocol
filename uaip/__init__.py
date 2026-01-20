@@ -1,14 +1,21 @@
 """
-UAIP Protocol - Secure settlement layer for AI agents.
+UAIP - Universal Agent Interoperability Protocol
 
-Simple usage:
-    >>> from uaip import UAIPAgent
-    >>> agent = UAIPAgent(name="MyBot", company="MyCo")
-    >>> receipt = agent.pay(to_agent="did:uaip:xyz", amount=50.00)
+The secure settlement layer for AI agents.
 """
 
-from .client import UAIPAgent
-from .exceptions import UAIPError, ComplianceError, SettlementError
+__version__ = "1.0.0"
 
-__version__ = "0.1.0"
-__all__ = ["UAIPAgent", "UAIPError", "ComplianceError", "SettlementError"]
+from .sdk import UAIP_Enterprise_SDK
+from .gateway import app
+from .compliance import ComplianceAuditor
+from .settlement import FinancialSettlementEngine
+from .privacy import ZKProofSystem
+
+__all__ = [
+    "UAIP_Enterprise_SDK",
+    "app",
+    "ComplianceAuditor", 
+    "FinancialSettlementEngine",
+    "ZKProofSystem"
+]
