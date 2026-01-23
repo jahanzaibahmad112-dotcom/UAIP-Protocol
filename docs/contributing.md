@@ -40,7 +40,7 @@ We are committed to providing a welcoming and inclusive environment for all cont
 
 ### Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported by contacting the project team at conduct@uaip.io. All complaints will be reviewed and investigated promptly and fairly.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported by contacting the project team at uaip.protocol@gmail.com. All complaints will be reviewed and investigated promptly and fairly.
 
 ---
 
@@ -75,11 +75,11 @@ New to open source? Here are some great first issues:
 
 ```bash
 # Fork the repository on GitHub, then:
-git clone https://github.com/YOUR_USERNAME/uaip-agentguard.git
-cd uaip-agentguard
+git clone https://github.com/YOUR_USERNAME/UAIP-Protocol.git
+cd UAIP-Protocol
 
 # Add upstream remote
-git remote add upstream https://github.com/ORIGINAL_OWNER/uaip-agentguard.git
+git remote add upstream https://github.com/jahanzaibahmad112-dotcom/UAIP-Protocol.git
 ```
 
 ### 2. Create Virtual Environment
@@ -636,13 +636,13 @@ All contributors will be recognized in:
 - **Discord:** [discord.gg/uaip](https://discord.gg/uaip) (coming soon)
 - **GitHub Discussions:** For questions and ideas
 - **GitHub Issues:** For bugs and feature requests
-- **Email:** support@uaip.io
+- **Email:** uaip.protocol@gmail.com
 
 ### Communication Channels
 
 - **GitHub:** Primary platform for code and issues
 - **Discord:** Real-time chat and community
-- **Twitter:** [@uaip_protocol](https://twitter.com/uaip_protocol) - Updates and announcements
+- **Twitter:** [@UAIP_Protocol](https://twitter.com/UAIP_Protocol) - Updates and announcements
 
 ### Office Hours
 
@@ -657,8 +657,8 @@ We host virtual office hours:
 
 - [QUICKSTART.md](QUICKSTART.md) - Get started in 5 minutes
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System design
-- [API.md](API.md) - API reference
-- [INTEGRATIONS.md](INTEGRATIONS.md) - Framework guides
+- [api_docs.md](api_docs.md) - API reference
+- [integrations_guide.md](integrations_guide.md) - Framework guides
 
 ---
 

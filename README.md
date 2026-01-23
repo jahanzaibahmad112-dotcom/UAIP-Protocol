@@ -29,8 +29,8 @@ UAIP-Protocol/
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/yourusername/uaip-agentguard.git
-cd uaip-agentguard
+git clone https://github.com/jahanzaibahmad112-dotcom/UAIP-Protocol.git
+cd UAIP-Protocol
 pip install -r requirements.txt
 
 # 2. Set admin key (CRITICAL!)
@@ -45,7 +45,7 @@ python demo.py
 
 **Done!** 🎉 Open http://localhost:8000 to see your dashboard.
 
-👉 **New to UAIP?** Read [QUICKSTART.md](QUICKSTART.md) for detailed setup.
+👉 **New to UAIP?** Read [docs/QUICKSTART.md](docs/QUICKSTART.md) for detailed setup.
 
 ---
 
@@ -119,7 +119,7 @@ AI agents from different companies (OpenAI, Microsoft, Anthropic) can't safely t
    └─────────────┘   └─────────────────┘   └───────────┘
 ```
 
-📖 **Detailed diagrams**: See [ARCHITECTURE.md](ARCHITECTURE.md)
+📖 **Detailed diagrams**: See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ---
 
@@ -192,10 +192,10 @@ print(f"🏦 Fee: ${result['settlement']['fee']}")
 
 | Document | Purpose | Read If... |
 |----------|---------|-----------|
-| [QUICKSTART.md](QUICKSTART.md) | Get running in 5 minutes | You're brand new |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Visual system design | You want to understand internals |
-| [API.md](API.md) | Complete endpoint reference | You're integrating directly |
-| [INTEGRATIONS.md](INTEGRATIONS.md) | LangChain, AutoGen, CrewAI | You use existing frameworks |
+| [docs/QUICKSTART.md](docs/QUICKSTART.md) | Get running in 5 minutes | You're brand new |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Visual system design | You want to understand internals |
+| [docs/API.md](docs/API.md) | Complete endpoint reference | You're integrating directly |
+| [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | LangChain, AutoGen, CrewAI | You use existing frameworks |
 | [examples/](examples/) | Code examples | You learn by doing |
 
 ---
@@ -255,7 +255,7 @@ def make_payment(recipient, amount, purpose):
 agent = Agent(tools=[make_payment], ...)
 ```
 
-👉 **Full guides**: See [INTEGRATIONS.md](INTEGRATIONS.md)
+👉 **Full guides**: See [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md)
 
 ---
 
@@ -389,7 +389,7 @@ mypy .
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for:
+We welcome contributions! Please see [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for:
 
 - Code style guidelines
 - Pull request process
@@ -452,8 +452,8 @@ result = agent.call_agent(
 
 ## 📞 Support
 
-- 🐛 **Bug reports**: [GitHub Issues](https://github.com/jahanzaibahmad112-dotom/UAIP-Protocol/issues)
-- 💬 **Questions**: [GitHub Discussions](https://github.com/jahanzaibahmad112-dotom/UAIP-Protocol/discussions)
+- 🐛 **Bug reports**: [GitHub Issues](https://github.com/jahanzaibahmad112-dotcom/UAIP-Protocol/issues)
+- 💬 **Questions**: [GitHub Discussions](https://github.com/jahanzaibahmad112-dotcom/UAIP-Protocol/discussions)
 - 📧 **Email**: uaip.protocol@gmail.com
 - 💼 **Enterprise**: uaip.protocol@gmail.com
 
@@ -502,7 +502,7 @@ Inspired by:
 
 If you find UAIP useful, please star the repo! It helps us grow.
 
-[![Star History Chart](https://api.star-history.com/svg?repos=yourusername/uaip-agentguard&type=Date)](https://star-history.com/#yourusername/uaip-agentguard&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=jahanzaibahmad112-dotcom/UAIP-Protocol&type=Date)](https://star-history.com/#jahanzaibahmad112-dotcom/UAIP-Protocol&Date)
 
 ---
 
