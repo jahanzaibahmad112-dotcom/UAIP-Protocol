@@ -1,11 +1,11 @@
 from fastapi import FastAPI, HTTPException, Header, Request, Path
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, field_validator, Field
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
 from contextlib import contextmanager
-import uuid, time, json, html, os, sqlite3, threading, secrets, logging, traceback
+import uuid, time, json, html, os, sqlite3, threading, secrets, logging, hashlib
 import nacl.signing, nacl.encoding
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
@@ -41,10 +41,23 @@ if not ADMIN_KEY or len(ADMIN_KEY) < 32:
     logger.critical("ADMIN_KEY must be set with minimum 32 characters!")
     raise RuntimeError("Insecure ADMIN_KEY configuration")
 
+# SECURITY FIX: Hash admin key for secure comparison
+ADMIN_KEY_HASH = hashlib.sha256(ADMIN_KEY.encode()).hexdigest()
+
 DB_PATH = os.getenv("DB_PATH", "uaip_vault.db")
 UAIP_VERSION = "1.0.0"
 SETTLEMENT_PROVIDER = os.getenv("SETTLEMENT_PROVIDER", "provider_01")
-TRUSTED_PROXIES = set(os.getenv("TRUSTED_PROXIES", "").split(",")) if os.getenv("TRUSTED_PROXIES") else set()
+
+# SECURITY FIX: Strict trusted proxies validation
+TRUSTED_PROXIES_STR = os.getenv("TRUSTED_PROXIES", "")
+TRUSTED_PROXIES = set()
+if TRUSTED_PROXIES_STR:
+    for proxy_ip in TRUSTED_PROXIES_STR.split(","):
+        proxy_ip = proxy_ip.strip()
+        if re.match(r'^(\d{1,3}\.){3}\d{1,3}$', proxy_ip):
+            TRUSTED_PROXIES.add(proxy_ip)
+        else:
+            logger.warning(f"Invalid proxy IP format ignored: {proxy_ip}")
 
 # Security Constants
 MAX_AMOUNT = Decimal("1000000000")
@@ -57,7 +70,8 @@ RATE_LIMIT_WINDOW = 60
 RATE_LIMIT_MAX_REQUESTS = 100
 LOCKOUT_DURATION = 300
 MAX_FAILED_ATTEMPTS = 5
-TIMESTAMP_TOLERANCE = 30  # Reduced from 300 to 30 seconds
+TIMESTAMP_TOLERANCE = 30
+SESSION_EXPIRY = 3600  # 1 hour
 
 SUPPORTED_CHAINS = {"BASE", "SOLANA", "ETHEREUM", "POLYGON"}
 
@@ -77,7 +91,7 @@ app.add_middleware(
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "X-Admin-Key"],
+    allow_headers=["Content-Type", "X-Admin-Key", "X-Session-Token"],
 )
 
 app.add_middleware(
@@ -120,7 +134,7 @@ class DBConnectionPool:
         finally:
             self.pool.put(conn)
 
-db_pool = None  # Will be initialized after database setup
+db_pool = None
 
 @contextmanager
 def db_session():
@@ -172,10 +186,31 @@ class UAIPPacket(BaseModel):
         except (InvalidOperation, ValueError) as e:
             raise ValueError(f'Invalid amount format: {e}')
 
+    @field_validator('data')
+    @classmethod
+    def validate_data(cls, v):
+        if len(json.dumps(v)) > 10000:
+            raise ValueError('Data payload too large')
+        return v
+
+    @field_validator('zk_proof')
+    @classmethod
+    def validate_zk_proof(cls, v):
+        if len(json.dumps(v)) > 5000:
+            raise ValueError('ZK proof payload too large')
+        return v
+
 class RegistrationRequest(BaseModel):
     registration_data: dict
     signature: str = Field(..., pattern=r'^[0-9a-fA-F]+$')
     public_key: str = Field(..., pattern=r'^[0-9a-fA-F]+$')
+
+    @field_validator('registration_data')
+    @classmethod
+    def validate_registration_data(cls, v):
+        if len(json.dumps(v)) > 10000:
+            raise ValueError('Registration data too large')
+        return v
 
 # --- DATABASE INITIALIZATION ---
 def init_db():
@@ -184,7 +219,6 @@ def init_db():
         with sqlite3.connect(DB_PATH) as conn:
             c = conn.cursor()
 
-            # Agent inventory with strict constraints
             c.execute('''CREATE TABLE IF NOT EXISTS inventory (
                 did TEXT PRIMARY KEY CHECK(length(did) <= 500 AND did != ''),
                 pk TEXT NOT NULL CHECK(length(pk) <= 1000 AND pk != ''),
@@ -194,7 +228,6 @@ def init_db():
             )''')
             c.execute('CREATE INDEX IF NOT EXISTS idx_inventory_pk ON inventory(pk)')
 
-            # Nonce tracking with strict uniqueness
             c.execute('''CREATE TABLE IF NOT EXISTS nonces (
                 id TEXT PRIMARY KEY CHECK(length(id) <= 100 AND id != ''),
                 ts REAL NOT NULL,
@@ -203,7 +236,6 @@ def init_db():
             c.execute('CREATE INDEX IF NOT EXISTS idx_nonces_ts ON nonces(ts)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_nonces_sender ON nonces(sender_id)')
 
-            # Pending transactions
             c.execute('''CREATE TABLE IF NOT EXISTS pending (
                 id TEXT PRIMARY KEY,
                 status TEXT NOT NULL CHECK(status IN ('WAITING', 'APPROVED', 'REJECTED')),
@@ -215,7 +247,6 @@ def init_db():
             )''')
             c.execute('CREATE INDEX IF NOT EXISTS idx_pending_status ON pending(status)')
 
-            # IP lockout tracking
             c.execute('''CREATE TABLE IF NOT EXISTS lockouts (
                 ip TEXT PRIMARY KEY,
                 attempts INTEGER NOT NULL DEFAULT 0,
@@ -223,7 +254,6 @@ def init_db():
                 last_attempt REAL
             )''')
 
-            # Action audit logs
             c.execute('''CREATE TABLE IF NOT EXISTS action_logs (
                 id TEXT PRIMARY KEY,
                 sender TEXT NOT NULL,
@@ -240,7 +270,6 @@ def init_db():
             c.execute('CREATE INDEX IF NOT EXISTS idx_logs_sender ON action_logs(sender)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_logs_decision ON action_logs(decision)')
 
-            # Blacklist
             c.execute('''CREATE TABLE IF NOT EXISTS blacklist (
                 did TEXT PRIMARY KEY,
                 reason TEXT,
@@ -248,7 +277,6 @@ def init_db():
                 blocked_by TEXT
             )''')
 
-            # Rate limiting
             c.execute('''CREATE TABLE IF NOT EXISTS rate_limits (
                 identifier TEXT NOT NULL,
                 window_start REAL NOT NULL,
@@ -257,6 +285,15 @@ def init_db():
             )''')
             c.execute('CREATE INDEX IF NOT EXISTS idx_rate_limits_window ON rate_limits(window_start)')
 
+            # SECURITY FIX: Admin session tracking
+            c.execute('''CREATE TABLE IF NOT EXISTS admin_sessions (
+                session_token TEXT PRIMARY KEY,
+                created_at REAL NOT NULL,
+                expires_at REAL NOT NULL,
+                ip_address TEXT NOT NULL
+            )''')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires ON admin_sessions(expires_at)')
+
             conn.commit()
             logger.info("Database initialized successfully")
     except sqlite3.Error as e:
@@ -264,31 +301,31 @@ def init_db():
         raise
 
 init_db()
-
-# Initialize connection pool after database setup
 db_pool = DBConnectionPool(DB_PATH, pool_size=5)
 
 # --- SECURITY UTILITIES ---
 def get_client_ip(request: Request) -> str:
-    """Get client IP with proxy header validation"""
+    """SECURITY FIX: Get client IP with strict proxy validation"""
     if request.client and TRUSTED_PROXIES and request.client.host in TRUSTED_PROXIES:
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
-            return forwarded.split(",")[0].strip()
-
+            client_ip = forwarded.split(",")[0].strip()
+            if re.match(r'^(\d{1,3}\.){3}\d{1,3}$', client_ip):
+                return client_ip
+            else:
+                logger.warning(f"Invalid IP format in X-Forwarded-For: {client_ip}")
+    
     return request.client.host if request.client else "127.0.0.1"
 
 def check_rate_limit(identifier: str, max_requests: int = RATE_LIMIT_MAX_REQUESTS) -> bool:
-    """Check if identifier has exceeded rate limit (FIXED)"""
+    """SECURITY FIX: Fail-closed rate limiting"""
     now = time.time()
     window_start = now - RATE_LIMIT_WINDOW
 
     try:
         with db_session() as conn:
-            # Clean old entries
             conn.execute('DELETE FROM rate_limits WHERE window_start < ?', (window_start,))
 
-            # Get current count (FIXED: proper SQL aggregation)
             result = conn.execute(
                 'SELECT SUM(request_count) as total FROM rate_limits WHERE identifier=? AND window_start > ?',
                 (identifier, window_start)
@@ -300,7 +337,6 @@ def check_rate_limit(identifier: str, max_requests: int = RATE_LIMIT_MAX_REQUEST
                 logger.warning(f"Rate limit exceeded for {identifier}: {count}/{max_requests}")
                 return False
 
-            # Increment counter
             conn.execute(
                 'INSERT OR REPLACE INTO rate_limits (identifier, window_start, request_count) VALUES (?, ?, ?)',
                 (identifier, int(now), count + 1)
@@ -309,10 +345,11 @@ def check_rate_limit(identifier: str, max_requests: int = RATE_LIMIT_MAX_REQUEST
             return True
     except Exception as e:
         logger.error(f"Rate limit check failed: {e}", exc_info=True)
-        return True  # Fail open to prevent DOS
+        # SECURITY FIX: Fail closed - block on error
+        return False
 
 def check_lockout(ip: str) -> bool:
-    """Check if IP is currently locked out"""
+    """SECURITY FIX: Fail-closed lockout checking"""
     try:
         with db_session() as conn:
             lockout = conn.execute(
@@ -324,13 +361,13 @@ def check_lockout(ip: str) -> bool:
                 if time.time() < lockout['lockout_until']:
                     return True
                 else:
-                    # Lockout expired, clean up
                     conn.execute('DELETE FROM lockouts WHERE ip=?', (ip,))
 
             return False
     except Exception as e:
         logger.error(f"Lockout check failed: {e}", exc_info=True)
-        return False  # Fail open
+        # SECURITY FIX: Fail closed - lock out on error
+        return True
 
 def record_failed_attempt(ip: str):
     """Record failed authentication attempt and apply lockout if needed"""
@@ -349,19 +386,20 @@ def record_failed_attempt(ip: str):
                     'INSERT OR REPLACE INTO lockouts (ip, attempts, lockout_until, last_attempt) VALUES (?, ?, ?, ?)',
                     (ip, attempts, lockout_until, time.time())
                 )
-                logger.warning(f"IP {ip} locked out after {attempts} failed attempts until {datetime.fromtimestamp(lockout_until)}")
+                logger.warning(f"IP {ip} locked out after {attempts} failed attempts")
             else:
                 conn.execute(
                     'INSERT OR REPLACE INTO lockouts (ip, attempts, last_attempt) VALUES (?, ?, ?)',
                     (ip, attempts, time.time())
                 )
-                logger.info(f"Failed attempt recorded for {ip}: {attempts}/{MAX_FAILED_ATTEMPTS}")
     except Exception as e:
         logger.error(f"Failed to record attempt: {e}", exc_info=True)
 
 def sanitize_did(did: str) -> str:
-    """Sanitize DID for safe storage and display"""
+    """SECURITY FIX: Sanitize DID with strict validation"""
     did = html.escape(did.strip())
+    if not re.match(r'^[a-zA-Z0-9:_\-]+$', did):
+        raise ValueError("Invalid DID format")
     return did[:MAX_DID_LENGTH]
 
 def normalize_amount(amount: Decimal, chain: str) -> Decimal:
@@ -369,6 +407,201 @@ def normalize_amount(amount: Decimal, chain: str) -> Decimal:
     decimals = CHAIN_DECIMALS.get(chain, 18)
     quantize_str = '1.' + '0' * decimals
     return amount.quantize(Decimal(quantize_str), rounding=ROUND_DOWN)
+
+def verify_admin_key(provided_key: str) -> bool:
+    """SECURITY FIX: Constant-time admin key verification"""
+    if not provided_key:
+        return False
+    provided_hash = hashlib.sha256(provided_key.encode()).hexdigest()
+    return secrets.compare_digest(provided_hash, ADMIN_KEY_HASH)
+
+def create_admin_session(ip_address: str) -> str:
+    """SECURITY FIX: Create secure admin session"""
+    session_token = secrets.token_urlsafe(32)
+    created_at = time.time()
+    expires_at = created_at + SESSION_EXPIRY
+
+    try:
+        with db_session() as conn:
+            conn.execute(
+                'INSERT INTO admin_sessions (session_token, created_at, expires_at, ip_address) VALUES (?, ?, ?, ?)',
+                (session_token, created_at, expires_at, ip_address)
+            )
+        return session_token
+    except Exception as e:
+        logger.error(f"Failed to create admin session: {e}")
+        raise
+
+def validate_admin_session(session_token: str, ip_address: str) -> bool:
+    """SECURITY FIX: Validate admin session with IP binding"""
+    if not session_token:
+        return False
+    
+    try:
+        with db_session() as conn:
+            session = conn.execute(
+                'SELECT expires_at, ip_address FROM admin_sessions WHERE session_token=?',
+                (session_token,)
+            ).fetchone()
+
+            if not session:
+                return False
+
+            if time.time() > session['expires_at']:
+                conn.execute('DELETE FROM admin_sessions WHERE session_token=?', (session_token,))
+                return False
+
+            if session['ip_address'] != ip_address:
+                logger.warning(f"Session hijacking attempt: token from {session['ip_address']} used from {ip_address}")
+                conn.execute('DELETE FROM admin_sessions WHERE session_token=?', (session_token,))
+                return False
+
+            return True
+    except Exception as e:
+        logger.error(f"Session validation failed: {e}")
+        return False
+
+def get_login_page() -> str:
+    """SECURITY FIX: Secure login page"""
+    return f"""
+    <!DOCTYPE html>
+    <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>AgentGuard Admin Login</title>
+            <style>
+                * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+                body {{
+                    background: linear-gradient(135deg, #0d1117 0%, #1a1f2e 100%);
+                    color: #e6edf3;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                }}
+                .login-container {{
+                    background: rgba(13, 17, 23, 0.8);
+                    padding: 40px;
+                    border-radius: 12px;
+                    border: 1px solid rgba(88, 166, 255, 0.3);
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+                    width: 100%;
+                    max-width: 400px;
+                }}
+                h1 {{
+                    color: #58a6ff;
+                    margin-bottom: 30px;
+                    text-align: center;
+                    font-size: 1.8em;
+                }}
+                .form-group {{
+                    margin-bottom: 20px;
+                }}
+                label {{
+                    display: block;
+                    margin-bottom: 8px;
+                    color: #8b949e;
+                }}
+                input {{
+                    width: 100%;
+                    padding: 12px;
+                    background: rgba(255, 255, 255, 0.05);
+                    border: 1px solid rgba(88, 166, 255, 0.2);
+                    border-radius: 6px;
+                    color: #e6edf3;
+                    font-size: 1em;
+                }}
+                input:focus {{
+                    outline: none;
+                    border-color: #58a6ff;
+                    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1);
+                }}
+                button {{
+                    width: 100%;
+                    padding: 12px;
+                    background: linear-gradient(135deg, #238636 0%, #2ea043 100%);
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    font-weight: 600;
+                    font-size: 1em;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                }}
+                button:hover {{
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 12px rgba(35, 134, 54, 0.4);
+                }}
+                button:disabled {{
+                    opacity: 0.5;
+                    cursor: not-allowed;
+                }}
+                .error {{
+                    background: rgba(248, 81, 73, 0.1);
+                    border: 1px solid rgba(248, 81, 73, 0.3);
+                    color: #f85149;
+                    padding: 12px;
+                    border-radius: 6px;
+                    margin-bottom: 20px;
+                    display: none;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="login-container">
+                <h1>🛡️ AgentGuard</h1>
+                <div id="error" class="error"></div>
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label for="adminKey">Admin Key</label>
+                        <input type="password" id="adminKey" required autocomplete="off">
+                    </div>
+                    <button type="submit" id="loginBtn">Login</button>
+                </form>
+            </div>
+
+            <script>
+                const form = document.getElementById('loginForm');
+                const errorDiv = document.getElementById('error');
+                const loginBtn = document.getElementById('loginBtn');
+
+                form.addEventListener('submit', async (e) => {{
+                    e.preventDefault();
+                    
+                    const adminKey = document.getElementById('adminKey').value;
+                    errorDiv.style.display = 'none';
+                    loginBtn.disabled = true;
+                    loginBtn.textContent = 'Authenticating...';
+
+                    try {{
+                        const res = await fetch('/v1/admin/login', {{
+                            method: 'POST',
+                            headers: {{
+                                'X-Admin-Key': adminKey
+                            }}
+                        }});
+
+                        if (!res.ok) {{
+                            throw new Error('Invalid credentials');
+                        }}
+
+                        const data = await res.json();
+                        localStorage.setItem('admin_session', data.session_token);
+                        window.location.reload();
+                    }} catch (err) {{
+                        errorDiv.textContent = '❌ ' + err.message;
+                        errorDiv.style.display = 'block';
+                        loginBtn.disabled = false;
+                        loginBtn.textContent = 'Login';
+                        document.getElementById('adminKey').value = '';
+                    }}
+                }});
+            </script>
+        </body>
+    </html>
+    """
 
 # --- MAINTENANCE TASKS ---
 def cleanup_task():
@@ -378,34 +611,35 @@ def cleanup_task():
             with db_session() as conn:
                 now = time.time()
 
-                # Clean expired nonces
                 deleted_nonces = conn.execute(
                     'DELETE FROM nonces WHERE ts < ?',
                     (now - NONCE_EXPIRY_SECONDS,)
                 ).rowcount
 
-                # Clean old logs (30 days)
                 deleted_logs = conn.execute(
                     'DELETE FROM action_logs WHERE ts < ?',
                     (now - 2592000,)
                 ).rowcount
 
-                # Clean old rate limits
                 deleted_rates = conn.execute(
                     'DELETE FROM rate_limits WHERE window_start < ?',
                     (now - RATE_LIMIT_WINDOW,)
                 ).rowcount
 
-                # Clean expired lockouts
                 deleted_lockouts = conn.execute(
                     'DELETE FROM lockouts WHERE lockout_until < ? AND lockout_until IS NOT NULL',
                     (now,)
                 ).rowcount
 
-                if any([deleted_nonces, deleted_logs, deleted_rates, deleted_lockouts]):
+                deleted_sessions = conn.execute(
+                    'DELETE FROM admin_sessions WHERE expires_at < ?',
+                    (now,)
+                ).rowcount
+
+                if any([deleted_nonces, deleted_logs, deleted_rates, deleted_lockouts, deleted_sessions]):
                     logger.debug(
                         f"Cleanup: nonces={deleted_nonces}, logs={deleted_logs}, "
-                        f"rates={deleted_rates}, lockouts={deleted_lockouts}"
+                        f"rates={deleted_rates}, lockouts={deleted_lockouts}, sessions={deleted_sessions}"
                     )
         except Exception as e:
             logger.error(f"Cleanup task error: {e}", exc_info=True)
@@ -416,6 +650,46 @@ cleanup_thread = threading.Thread(target=cleanup_task, daemon=True)
 cleanup_thread.start()
 
 # --- ENDPOINTS ---
+@app.post("/v1/admin/login")
+async def admin_login(
+    request: Request,
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key")
+):
+    """SECURITY FIX: Secure admin login endpoint"""
+    client_ip = get_client_ip(request)
+    
+    if check_lockout(client_ip):
+        raise HTTPException(status_code=429, detail="Too many failed attempts")
+    
+    if not x_admin_key or not verify_admin_key(x_admin_key):
+        record_failed_attempt(client_ip)
+        logger.warning(f"Failed admin login from {client_ip}")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    session_token = create_admin_session(client_ip)
+    
+    logger.info(f"Admin login successful from {client_ip}")
+    return {
+        "status": "authenticated",
+        "session_token": session_token,
+        "expires_in": SESSION_EXPIRY
+    }
+
+@app.post("/v1/admin/logout")
+async def admin_logout(
+    request: Request,
+    x_session_token: Optional[str] = Header(None, alias="X-Session-Token")
+):
+    """SECURITY FIX: Admin logout endpoint"""
+    if x_session_token:
+        try:
+            with db_session() as conn:
+                conn.execute('DELETE FROM admin_sessions WHERE session_token=?', (x_session_token,))
+        except Exception as e:
+            logger.error(f"Logout error: {e}")
+    
+    return {"status": "logged_out"}
+
 @app.post("/v1/register")
 async def register(request: Request, req: RegistrationRequest):
     """Register a new agent with cryptographic identity verification"""
@@ -432,13 +706,11 @@ async def register(request: Request, req: RegistrationRequest):
         sig = req.signature
         pk = req.public_key
 
-        # Validate required fields
         if not data.get("agent_id") or not data.get("zk_commitment"):
             raise HTTPException(status_code=400, detail="Missing required fields: agent_id, zk_commitment")
 
         agent_id = sanitize_did(data["agent_id"])
 
-        # Verify cryptographic signature
         try:
             vk = nacl.signing.VerifyKey(pk, encoder=nacl.encoding.HexEncoder)
             msg = json.dumps(data, sort_keys=True, separators=(',', ':')).encode('utf-8')
@@ -448,13 +720,13 @@ async def register(request: Request, req: RegistrationRequest):
             record_failed_attempt(client_ip)
             raise HTTPException(status_code=401, detail="Invalid signature")
 
-        # Validate ZK commitment format
         try:
-            int(str(data["zk_commitment"]))
-        except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="Invalid zk_commitment format")
+            commitment_val = int(str(data["zk_commitment"]))
+            if commitment_val < 0:
+                raise ValueError("Negative commitment")
+        except (ValueError, TypeError) as e:
+            raise HTTPException(status_code=400, detail=f"Invalid zk_commitment format: {e}")
 
-        # Store agent in inventory
         with db_session() as conn:
             conn.execute(
                 'INSERT OR REPLACE INTO inventory (did, pk, zk_commitment, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
@@ -487,7 +759,6 @@ async def execute(request: Request, req: UAIPPacket):
         auditor = ComplianceAuditor()
 
         with db_session() as conn:
-            # Check blacklist
             blacklisted = conn.execute(
                 'SELECT reason FROM blacklist WHERE did=?',
                 (req.sender_id,)
@@ -500,7 +771,6 @@ async def execute(request: Request, req: UAIPPacket):
                     detail=f"BLACKLISTED: {blacklisted['reason'] if blacklisted['reason'] else 'Policy violation'}"
                 )
 
-            # FIXED: Check for nonce reuse BEFORE inserting (prevents race condition)
             existing_nonce = conn.execute(
                 'SELECT 1 FROM nonces WHERE id=? LIMIT 1',
                 (req.nonce,)
@@ -511,18 +781,15 @@ async def execute(request: Request, req: UAIPPacket):
                 record_failed_attempt(client_ip)
                 raise HTTPException(status_code=403, detail="REPLAY_ATTACK_DETECTED")
 
-            # Insert nonce
             try:
                 conn.execute(
                     'INSERT INTO nonces (id, ts, sender_id) VALUES (?, ?, ?)',
                     (req.nonce, now, req.sender_id)
                 )
             except sqlite3.IntegrityError:
-                # Should not happen due to check above, but handle anyway
                 logger.error(f"Race condition in nonce insertion: {req.nonce}")
                 raise HTTPException(status_code=403, detail="REPLAY_ATTACK_DETECTED")
 
-            # Verify cryptographic identity
             try:
                 vk = nacl.signing.VerifyKey(req.public_key, encoder=nacl.encoding.HexEncoder)
                 msg = json.dumps(req.data, sort_keys=True, separators=(',', ':')).encode('utf-8')
@@ -536,11 +803,12 @@ async def execute(request: Request, req: UAIPPacket):
                 if not agent:
                     raise Exception("Agent not registered or public key mismatch")
 
-                # FIXED: Safe ZK commitment conversion
                 try:
                     commitment = int(agent['zk_commitment'])
-                except (ValueError, TypeError):
-                    logger.error(f"Invalid ZK commitment format for {req.sender_id}")
+                    if commitment < 0:
+                        raise ValueError("Invalid commitment value")
+                except (ValueError, TypeError) as e:
+                    logger.error(f"Invalid ZK commitment format for {req.sender_id}: {e}")
                     raise Exception("Agent data corrupted - invalid ZK commitment")
 
                 if not ZK_Privacy.verify_proof(req.zk_proof, commitment):
@@ -551,7 +819,6 @@ async def execute(request: Request, req: UAIPPacket):
                 record_failed_attempt(client_ip)
                 raise HTTPException(status_code=401, detail="IDENTITY_VERIFICATION_FAILED")
 
-            # Compliance audit
             audit_log = {
                 "sender": req.sender_id,
                 "task": req.task,
@@ -574,7 +841,6 @@ async def execute(request: Request, req: UAIPPacket):
                     detail={"error": "COMPLIANCE_VIOLATION", "audit": audit_report}
                 )
 
-            # Determine if human approval needed
             requires_approval = (
                 amount_dec >= Decimal("1000") or
                 audit_status == "PENDING_ENFORCED"
@@ -584,7 +850,6 @@ async def execute(request: Request, req: UAIPPacket):
 
             req_id = str(uuid.uuid4())
 
-            # Log action
             conn.execute(
                 '''INSERT INTO action_logs
                    (id, sender, task, amount, decision, law, ts, chain, intent, audit_id)
@@ -615,7 +880,6 @@ async def execute(request: Request, req: UAIPPacket):
                     "message": "High-value transaction requires human approval"
                 }
 
-            # Process settlement
             try:
                 amount_normalized = normalize_amount(amount_dec, req.chain)
                 settlement_result = UAIPFinancialEngine().process_settlement(
@@ -641,8 +905,16 @@ async def execute(request: Request, req: UAIPPacket):
         raise HTTPException(status_code=500, detail="Transaction failed")
 
 @app.get("/", response_class=HTMLResponse)
-async def dashboard():
-    """Admin dashboard for monitoring and approving transactions"""
+async def dashboard(
+    request: Request,
+    x_session_token: Optional[str] = Header(None, alias="X-Session-Token")
+):
+    """SECURITY FIX: Protected admin dashboard"""
+    client_ip = get_client_ip(request)
+    
+    if not x_session_token or not validate_admin_session(x_session_token, client_ip):
+        return get_login_page()
+    
     rows = ""
     stats = {"total": 0, "pending": 0, "allowed": 0, "blocked": 0}
 
@@ -655,13 +927,12 @@ async def dashboard():
             for l in logs_data:
                 stats["total"] += 1
 
-                # FIXED: Use .get() method instead of key checking
-                d_sender = html.escape(str(l.get('sender', 'Unknown')))[:100]
-                d_task = html.escape(str(l.get('task', 'Unknown')))[:200]
-                d_amount = html.escape(str(l.get('amount', '0.0')))
-                d_decision = str(l.get('decision', 'UNKNOWN'))
-                d_law = html.escape(str(l.get('law', 'N/A')))[:300]
-                d_ts = datetime.fromtimestamp(l.get('ts', 0)).strftime('%Y-%m-%d %H:%M:%S')
+                d_sender = html.escape(str(l['sender'] if l['sender'] else 'Unknown'))[:100]
+                d_task = html.escape(str(l['task'] if l['task'] else 'Unknown'))[:200]
+                d_amount = html.escape(str(l['amount'] if l['amount'] else '0.0'))
+                d_decision = str(l['decision'] if l['decision'] else 'UNKNOWN')
+                d_law = html.escape(str(l['law'] if l['law'] else 'N/A'))[:300]
+                d_ts = datetime.fromtimestamp(l['ts'] if l['ts'] else 0).strftime('%Y-%m-%d %H:%M:%S')
 
                 if d_decision == "PENDING":
                     stats["pending"] += 1
@@ -686,7 +957,7 @@ async def dashboard():
                 """
     except Exception as e:
         logger.error(f"Dashboard error: {e}", exc_info=True)
-        rows = f"<tr><td colspan='7' style='color:red;'>Error loading data. Check logs for details.</td></tr>"
+        rows = f"<tr><td colspan='7' style='color:red;'>Error loading data</td></tr>"
 
     return f"""
     <!DOCTYPE html>
@@ -714,6 +985,7 @@ async def dashboard():
                     margin-bottom: 20px;
                     display: flex;
                     gap: 10px;
+                    justify-content: space-between;
                 }}
                 .stats {{
                     display: grid;
@@ -761,12 +1033,11 @@ async def dashboard():
                     opacity: 0.5;
                     cursor: not-allowed;
                 }}
+                .logout-btn {{
+                    background: rgba(248, 81, 73, 0.2);
+                }}
                 .refresh-btn {{
-                    position: fixed;
-                    top: 20px;
-                    right: 20px;
                     background: rgba(88, 166, 255, 0.2);
-                    z-index: 1000;
                 }}
             </style>
         </head>
@@ -775,7 +1046,8 @@ async def dashboard():
                 <h1>🛡️ AgentGuard Master Dashboard</h1>
 
                 <div class="controls">
-                    <button id="refreshBtn" class="refresh-btn" onclick="toggleRefresh()">⏸️ Pause Auto-Refresh</button>
+                    <button class="refresh-btn" onclick="toggleRefresh()">⏸️ Pause Auto-Refresh</button>
+                    <button class="logout-btn" onclick="logout()">Logout</button>
                 </div>
 
                 <div class="stats">
@@ -805,7 +1077,7 @@ async def dashboard():
                             <th>Intent</th>
                             <th>Value</th>
                             <th>Status</th>
-                            <th>Legal Grounding (RAG)</th>
+                            <th>Legal Grounding</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -817,9 +1089,13 @@ async def dashboard():
                 let autoRefresh = true;
                 let refreshInterval;
 
+                function getSessionToken() {{
+                    return localStorage.getItem('admin_session');
+                }}
+
                 function toggleRefresh() {{
                     autoRefresh = !autoRefresh;
-                    const btn = document.getElementById('refreshBtn');
+                    const btn = event.target;
 
                     if (autoRefresh) {{
                         btn.textContent = '⏸️ Pause Auto-Refresh';
@@ -830,9 +1106,29 @@ async def dashboard():
                     }}
                 }}
 
+                async function logout() {{
+                    const token = getSessionToken();
+                    
+                    try {{
+                        await fetch('/v1/admin/logout', {{
+                            method: 'POST',
+                            headers: {{ 'X-Session-Token': token }}
+                        }});
+                    }} catch(e) {{
+                        console.error('Logout error:', e);
+                    }}
+                    
+                    localStorage.removeItem('admin_session');
+                    location.reload();
+                }}
+
                 async function auth(id) {{
-                    const k = prompt('Enter Admin Key:');
-                    if(!k) return;
+                    const token = getSessionToken();
+                    if(!token) {{
+                        alert('Session expired. Please login again.');
+                        location.reload();
+                        return;
+                    }}
 
                     const btn = event.target;
                     btn.disabled = true;
@@ -841,10 +1137,16 @@ async def dashboard():
                     try {{
                         const res = await fetch('/v1/decision/' + encodeURIComponent(id) + '/allow', {{
                             method: 'POST',
-                            headers: {{ 'X-Admin-Key': k }}
+                            headers: {{ 'X-Session-Token': token }}
                         }});
 
                         if(!res.ok) {{
+                            if(res.status === 401) {{
+                                alert('❌ Session expired. Please login again.');
+                                localStorage.removeItem('admin_session');
+                                location.reload();
+                                return;
+                            }}
                             const error = await res.json();
                             alert('❌ Error: ' + (error.detail || 'Unauthorized'));
                             btn.disabled = false;
@@ -868,6 +1170,12 @@ async def dashboard():
                     }}
                 }}
 
+                // Check if we have a valid session
+                const token = getSessionToken();
+                if (!token) {{
+                    location.reload();
+                }}
+
                 // Start auto-refresh
                 refreshInterval = setInterval(() => location.reload(), 10000);
             </script>
@@ -878,20 +1186,19 @@ async def dashboard():
 @app.post("/v1/decision/{req_id}/{choice}")
 async def manual_decision(
     request: Request,
-    req_id: str = Path(..., regex=r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'),
-    choice: str = Path(..., regex=r'^(allow|deny)'),
-    x_admin_key: Optional[str] = Header(None)
+    req_id: str = Path(..., regex=r'^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}),
+    choice: str = Path(..., regex=r'^(allow|deny)),
+    x_session_token: Optional[str] = Header(None, alias="X-Session-Token")
 ):
-    """Manual approval/denial of pending transactions (ADMIN ONLY)"""
-
-    # FIXED: Prevent timing attacks
-    if x_admin_key is None or not secrets.compare_digest(x_admin_key, ADMIN_KEY):
-        logger.warning(f"Unauthorized admin access attempt from {get_client_ip(request)}")
+    """SECURITY FIX: Session-based manual approval"""
+    client_ip = get_client_ip(request)
+    
+    if not x_session_token or not validate_admin_session(x_session_token, client_ip):
+        logger.warning(f"Unauthorized admin access attempt from {client_ip}")
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     try:
         with db_session() as conn:
-            # Update pending status
             cursor = conn.execute(
                 'UPDATE pending SET status=?, approved_by=?, approved_at=? WHERE id=? AND status="WAITING"',
                 ("APPROVED" if choice == "allow" else "REJECTED", "admin", time.time(), req_id)
@@ -905,7 +1212,6 @@ async def manual_decision(
                 logger.info(f"Transaction {req_id} rejected by admin")
                 return {"status": "REJECTED"}
 
-            # Get transaction details (FIXED: safe JSON parsing)
             txn = conn.execute(
                 'SELECT request_json FROM pending WHERE id=?',
                 (req_id,)
@@ -920,7 +1226,6 @@ async def manual_decision(
                 logger.error(f"Invalid pending request data for {req_id}: {e}")
                 raise HTTPException(status_code=500, detail="Corrupted transaction data")
 
-            # Process settlement
             try:
                 amount_normalized = normalize_amount(Decimal(r.amount), r.chain)
                 settlement_result = UAIPFinancialEngine().process_settlement(
@@ -949,7 +1254,7 @@ async def manual_decision(
         raise HTTPException(status_code=500, detail="Decision processing failed")
 
 @app.get("/v1/check/{req_id}")
-async def check(req_id: str = Path(..., regex=r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')):
+async def check(req_id: str = Path(..., regex=r'^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}})):
     """Check status of a pending transaction"""
     try:
         with db_session() as conn:

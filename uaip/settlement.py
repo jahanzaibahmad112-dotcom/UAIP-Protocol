@@ -1,14 +1,18 @@
-from decimal import Decimal, InvalidOperation, ROUND_DOWN, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 import uuid
 import json
 import time
 import threading
 import logging
 import re
-from typing import Dict, Any, Optional, Set
+import sqlite3
+import hashlib
+from typing import Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime
-from collections import OrderedDict
+from contextlib import contextmanager
+from cryptography.fernet import Fernet
+import base64
 
 # Configure logging
 logging.basicConfig(
@@ -18,789 +22,598 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class UAIPFinancialEngine:
+class Web3Provider:
     """
-    Production-Grade Financial Settlement Engine with 3-Tiered Revenue Model.
+    Placeholder for real Web3 integration.
     
-    Fee Structure:
-    - Tier A (<$10): $0.01 flat fee
-    - Tier B ($10-$10k): 1.0% percentage fee
-    - Tier C (>$10k): $10 flat + 0.5% percentage fee
+    Production integration would use:
+    - web3.py for Ethereum/Base/Polygon: pip install web3
+    - solders + solana-py for Solana: pip install solana solders
     
-    Security Features:
-    - Decimal precision for all financial calculations (no float arithmetic)
-    - Comprehensive input validation and sanitization
-    - Idempotency protection with LRU cache
-    - Thread-safe operations with fine-grained locking
-    - Complete audit trail with JSONL logging
-    - Maximum transaction limits and rate limiting
-    - Negative amount protection
-    - Self-payment prevention
-    - DID format validation
-    - Chain-specific configuration
-    - Atomic statistics updates
-    
-    Compliance:
-    - PCI-DSS compliant logging (no PII exposure)
-    - SOC2 audit trail requirements
-    - GDPR-ready transaction records
+    Example real implementation:
+    ```python
+    from web3 import Web3
+    from solana.rpc.api import Client
+    from spl.token.instructions import transfer_checked
+    ```
     """
     
-    # === FINANCIAL CONSTANTS ===
-    MAX_AMOUNT = Decimal('1000000000')  # $1B max per transaction
-    MIN_AMOUNT = Decimal('0.01')  # $0.01 minimum
-    TIER_A_THRESHOLD = Decimal('10')  # Nano transaction threshold
-    TIER_B_THRESHOLD = Decimal('10000')  # Mid-range threshold
+    def __init__(self, chain: str, rpc_url: Optional[str] = None):
+        self.chain = chain
+        self.rpc_url = rpc_url or self._get_default_rpc(chain)
+        logger.info(f"🔗 Web3Provider initialized for {chain} (RPC: {self.rpc_url})")
     
-    # Decimal precision for different purposes
-    FEE_PRECISION = Decimal('0.000001')  # 6 decimals for fees (micro-dollar precision)
-    AMOUNT_PRECISION = Decimal('0.01')  # 2 decimals for display amounts
+    def _get_default_rpc(self, chain: str) -> str:
+        """Get default RPC URL for chain."""
+        return {
+            'BASE': 'https://mainnet.base.org',
+            'ETHEREUM': 'https://eth.llamarpc.com',
+            'POLYGON': 'https://polygon-rpc.com',
+            'SOLANA': 'https://api.mainnet-beta.solana.com'
+        }.get(chain, '')
     
-    # === BLOCKCHAIN CONFIGURATION ===
-    SUPPORTED_CHAINS = {
-        'BASE': {
-            'name': 'Base',
-            'currency': 'USDC',
-            'decimals': 6,
-            'min_confirmations': 12,
-            'avg_block_time': 2  # seconds
-        },
-        'SOLANA': {
-            'name': 'Solana',
-            'currency': 'USDC',
-            'decimals': 6,
-            'min_confirmations': 32,
-            'avg_block_time': 0.4
-        },
-        'ETHEREUM': {
-            'name': 'Ethereum',
-            'currency': 'USDC',
-            'decimals': 6,
-            'min_confirmations': 12,
-            'avg_block_time': 12
-        },
-        'POLYGON': {
-            'name': 'Polygon',
-            'currency': 'USDC',
-            'decimals': 6,
-            'min_confirmations': 128,
-            'avg_block_time': 2
+    def send_usdc_transaction(
+        self, from_address: str, to_address: str, 
+        amount_usdc: Decimal, decimals: int = 6
+    ) -> Dict[str, Any]:
+        """
+        PLACEHOLDER: Send USDC on blockchain.
+        
+        Real implementation would:
+        1. Build USDC transfer transaction
+        2. Sign with private key from secure storage
+        3. Broadcast to network
+        4. Wait for confirmations
+        
+        For EVM chains (Base/Ethereum/Polygon):
+        ```python
+        w3 = Web3(Web3.HTTPProvider(self.rpc_url))
+        usdc = w3.eth.contract(address=USDC_ADDRESS, abi=ERC20_ABI)
+        amount_wei = int(amount_usdc * (10 ** decimals))
+        tx = usdc.functions.transfer(to_address, amount_wei).build_transaction({
+            'from': from_address,
+            'gas': 100000,
+            'gasPrice': w3.eth.gas_price,
+            'nonce': w3.eth.get_transaction_count(from_address)
+        })
+        signed = w3.eth.account.sign_transaction(tx, private_key)
+        tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
+        receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+        ```
+        
+        For Solana:
+        ```python
+        client = Client(self.rpc_url)
+        # Build SPL token transfer instruction
+        # Sign and send transaction
+        ```
+        """
+        tx_hash = f"0x{hashlib.sha256(f'{from_address}{to_address}{amount_usdc}{time.time()}'.encode()).hexdigest()}"
+        
+        logger.info(
+            f"📡 [SIMULATED] Blockchain TX:\n"
+            f"  Chain: {self.chain}\n"
+            f"  From: {from_address}\n"
+            f"  To: {to_address}\n"
+            f"  Amount: {amount_usdc} USDC\n"
+            f"  TX: {tx_hash}"
+        )
+        
+        return {
+            'success': True,
+            'tx_hash': tx_hash,
+            'chain': self.chain,
+            'confirmations': 12,
+            'status': 'confirmed'
         }
+
+
+class PIIProtection:
+    """
+    Privacy protection for sensitive metadata.
+    Uses Fernet symmetric encryption for PII fields.
+    """
+    
+    PII_FIELDS = {
+        'email', 'name', 'phone', 'address', 'ssn', 'tax_id',
+        'user_name', 'full_name', 'ip_address', 'device_id',
+        'customer_name', 'billing_address', 'shipping_address'
     }
     
-    # === SECURITY CONSTANTS ===
-    MAX_IDEMPOTENCY_CACHE_SIZE = 10000  # Prevent memory exhaustion
+    def __init__(self, encryption_key: Optional[bytes] = None):
+        if encryption_key is None:
+            encryption_key = Fernet.generate_key()
+            logger.warning("⚠️  New encryption key generated. Use secure key management in production.")
+        
+        self.cipher = Fernet(encryption_key)
+    
+    def _is_pii_field(self, field_name: str) -> bool:
+        return any(pii in field_name.lower() for pii in self.PII_FIELDS)
+    
+    def encrypt_value(self, value: str) -> str:
+        try:
+            encrypted = self.cipher.encrypt(value.encode('utf-8'))
+            return f"encrypted:{base64.b64encode(encrypted).decode('utf-8')}"
+        except Exception as e:
+            logger.error(f"Encryption failed: {e}")
+            return "[REDACTED]"
+    
+    def scrub_metadata(self, metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Encrypt PII fields, preserve non-PII."""
+        if not metadata or not isinstance(metadata, dict):
+            return {}
+        
+        scrubbed = {}
+        for key, value in metadata.items():
+            if self._is_pii_field(key):
+                if isinstance(value, str):
+                    scrubbed[key] = self.encrypt_value(value)
+                elif isinstance(value, dict):
+                    scrubbed[key] = self.scrub_metadata(value)
+                else:
+                    scrubbed[key] = "[REDACTED]"
+            else:
+                scrubbed[key] = self.scrub_metadata(value) if isinstance(value, dict) else value
+        
+        return scrubbed
+
+
+class UAIPFinancialEngine:
+    """
+    Production Financial Settlement Engine with:
+    ✅ SQLite persistence (survives restarts)
+    ✅ Web3 integration placeholders
+    ✅ PII encryption
+    ✅ String-based API responses (no float rounding)
+    """
+    
+    MAX_AMOUNT = Decimal('1000000000')
+    MIN_AMOUNT = Decimal('0.01')
+    TIER_A_THRESHOLD = Decimal('10')
+    TIER_B_THRESHOLD = Decimal('10000')
+    FEE_PRECISION = Decimal('0.000001')
+    
+    SUPPORTED_CHAINS = {
+        'BASE': {'name': 'Base', 'currency': 'USDC', 'decimals': 6},
+        'SOLANA': {'name': 'Solana', 'currency': 'USDC', 'decimals': 6},
+        'ETHEREUM': {'name': 'Ethereum', 'currency': 'USDC', 'decimals': 6},
+        'POLYGON': {'name': 'Polygon', 'currency': 'USDC', 'decimals': 6}
+    }
+    
     MAX_DID_LENGTH = 500
     MIN_DID_LENGTH = 10
-    MAX_METADATA_SIZE = 10000  # bytes
+    MAX_METADATA_SIZE = 10000
     
     def __init__(
-        self,
-        log_dir: str = ".",
-        treasury_did: Optional[str] = None,
-        enable_self_payment: bool = False
+        self, log_dir: str = ".", treasury_did: Optional[str] = None,
+        enable_self_payment: bool = False, db_path: Optional[str] = None,
+        encryption_key: Optional[bytes] = None
     ):
-        """
-        Initialize the Financial Settlement Engine.
-        
-        Args:
-            log_dir: Directory for settlement logs (validated for path traversal)
-            treasury_did: Override default treasury DID (for testing)
-            enable_self_payment: Allow self-payments (disabled by default for security)
-        """
-        # Treasury configuration
         self.hq_treasury = treasury_did or "did:uaip:protocol_hq_treasury"
         self.enable_self_payment = enable_self_payment
         
-        # Fee structure with high precision Decimal values
         self.tiers = {
-            "NANO_FLAT": Decimal('0.01'),      # Tier A: $0.01 flat
-            "MID_RATE": Decimal('0.01'),       # Tier B: 1.0% (0.01 as decimal)
-            "ENT_RATE": Decimal('0.005'),      # Tier C: 0.5% (0.005 as decimal)
-            "ENT_FLAT": Decimal('10.0')        # Tier C: $10 base
+            "NANO_FLAT": Decimal('0.01'),
+            "MID_RATE": Decimal('0.01'),
+            "ENT_RATE": Decimal('0.005'),
+            "ENT_FLAT": Decimal('10.0')
         }
         
-        # Thread safety with separate locks for different operations
-        self.file_lock = threading.Lock()  # For file I/O
-        self.tx_lock = threading.Lock()  # For transaction tracking
-        self.stats_lock = threading.Lock()  # For statistics
+        self.file_lock = threading.Lock()
+        self.db_lock = threading.Lock()
+        self.stats_lock = threading.Lock()
         
-        # Idempotency tracking with LRU behavior (OrderedDict)
-        self.processed_transactions: OrderedDict[str, float] = OrderedDict()
+        self.pii_protection = PIIProtection(encryption_key)
         
-        # Statistics tracking
-        self.stats = {
-            'total_transactions': 0,
-            'total_volume': Decimal('0'),
-            'total_fees_collected': Decimal('0'),
-            'failed_transactions': 0,
-            'tier_a_count': 0,
-            'tier_b_count': 0,
-            'tier_c_count': 0
-        }
-        
-        # Setup settlement logging with path validation
         self.log_dir = self._validate_log_dir(log_dir)
-        self.settlement_log_path = self.log_dir / "uaip_settlements.jsonl"
+        self.db_path = db_path or str(self.log_dir / "uaip_settlements.db")
+        self._init_database()
         
-        logger.info(
-            f"✅ Financial Engine initialized:\n"
-            f"  Treasury: {self.hq_treasury}\n"
-            f"  Log directory: {self.log_dir}\n"
-            f"  Self-payment allowed: {self.enable_self_payment}"
-        )
+        self.stats = {
+            'total_transactions': 0, 'total_volume': Decimal('0'),
+            'total_fees_collected': Decimal('0'), 'failed_transactions': 0,
+            'tier_a_count': 0, 'tier_b_count': 0, 'tier_c_count': 0
+        }
+        
+        self.settlement_log_path = self.log_dir / "uaip_settlements.jsonl"
+        self.web3_providers: Dict[str, Web3Provider] = {}
+        
+        logger.info(f"✅ Engine initialized: DB={self.db_path}, PII protection enabled")
+    
+    def _init_database(self):
+        """Initialize SQLite with idempotency and settlement tables."""
+        try:
+            with self._get_db_connection() as conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS processed_tx (
+                        idempotency_key TEXT PRIMARY KEY,
+                        tx_id TEXT NOT NULL,
+                        processed_at REAL NOT NULL,
+                        payer_did TEXT NOT NULL,
+                        payee_did TEXT NOT NULL,
+                        amount_usd TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_processed_at ON processed_tx(processed_at)")
+                
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS settlements (
+                        tx_id TEXT PRIMARY KEY,
+                        timestamp REAL NOT NULL,
+                        payer_did TEXT, payee_did TEXT,
+                        amount_usd TEXT, fee_usd TEXT, payout_usd TEXT,
+                        fee_tier TEXT, chain TEXT,
+                        blockchain_tx_hash TEXT,
+                        status TEXT DEFAULT 'completed',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                conn.commit()
+                logger.info("✅ Database initialized")
+        except sqlite3.Error as e:
+            logger.error(f"❌ Database init failed: {e}")
+            raise RuntimeError(f"DB initialization failed: {e}")
+    
+    @contextmanager
+    def _get_db_connection(self):
+        conn = None
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("PRAGMA journal_mode = WAL")
+            yield conn
+        finally:
+            if conn:
+                conn.close()
     
     def _validate_log_dir(self, log_dir: str) -> Path:
-        """
-        Validate and create log directory with path traversal protection.
-        
-        Args:
-            log_dir: Requested log directory
-            
-        Returns:
-            Validated Path object
-            
-        Raises:
-            ValueError: If path is invalid or contains traversal attempts
-        """
         try:
-            # Resolve to absolute path
             abs_path = Path(log_dir).resolve()
-            
-            # Check for path traversal
-            base_dir = Path.cwd().resolve()
-            try:
-                abs_path.relative_to(base_dir)
-            except ValueError:
-                # Path is outside current directory
-                logger.warning(f"Log directory outside base: {log_dir}")
-                # Allow it but log the warning (could be /var/log, etc.)
-            
-            # Create directory if needed
             abs_path.mkdir(parents=True, exist_ok=True, mode=0o750)
-            
             return abs_path
-            
         except Exception as e:
-            logger.error(f"Failed to setup log directory: {e}")
-            # Fall back to current directory
+            logger.error(f"Log dir setup failed: {e}")
             return Path.cwd()
     
     def _validate_amount(self, amount: Any) -> Decimal:
-        """
-        Validate and convert amount to Decimal with comprehensive security checks.
-        
-        Args:
-            amount: Amount to validate (str, int, float, or Decimal)
-            
-        Returns:
-            Validated Decimal amount
-            
-        Raises:
-            ValueError: If amount is invalid
-        """
         try:
-            # Convert to Decimal (avoid float precision issues)
             if isinstance(amount, float):
-                # Warn about float usage (precision issues)
-                logger.warning(
-                    f"Float amount detected: {amount}. "
-                    f"Use Decimal or string for exact precision."
-                )
+                logger.warning(f"Float detected: {amount}. Use Decimal/string for precision.")
                 amount_dec = Decimal(str(amount))
             elif isinstance(amount, (int, str)):
                 amount_dec = Decimal(str(amount))
             elif isinstance(amount, Decimal):
                 amount_dec = amount
             else:
-                raise ValueError(f"Unsupported amount type: {type(amount).__name__}")
+                raise ValueError(f"Unsupported type: {type(amount).__name__}")
             
-            # Check for NaN or Infinity
             if not amount_dec.is_finite():
-                raise ValueError("Amount must be a finite number")
-            
-            # Validate range (must be positive)
+                raise ValueError("Amount must be finite")
             if amount_dec < 0:
                 raise ValueError("Amount cannot be negative")
-            
-            # Check minimum
             if amount_dec < self.MIN_AMOUNT and amount_dec != 0:
-                raise ValueError(f"Amount below minimum: ${self.MIN_AMOUNT}")
-            
-            # Check maximum
+                raise ValueError(f"Below minimum: ${self.MIN_AMOUNT}")
             if amount_dec > self.MAX_AMOUNT:
-                raise ValueError(f"Amount exceeds maximum: ${self.MAX_AMOUNT}")
-            
-            # Check decimal precision (max 18 for blockchain compatibility)
-            exponent = amount_dec.as_tuple().exponent
-            if exponent < -18:
-                raise ValueError(
-                    f"Too many decimal places: {abs(exponent)} (maximum 18)"
-                )
+                raise ValueError(f"Exceeds maximum: ${self.MAX_AMOUNT}")
             
             return amount_dec
-            
         except (InvalidOperation, ValueError) as e:
-            logger.error(f"Amount validation failed: {e}")
             raise ValueError(f"Invalid amount: {e}")
     
-    def _validate_did(self, did: str, field_name: str = "DID") -> str:
-        """
-        Validate DID format with comprehensive checks.
-        
-        Args:
-            did: DID to validate
-            field_name: Name of field for error messages
-            
-        Returns:
-            Validated DID string
-            
-        Raises:
-            ValueError: If DID is invalid
-        """
+    def _validate_did(self, did: str, field: str = "DID") -> str:
         if not did or not isinstance(did, str):
-            raise ValueError(f"{field_name} is required and must be a string")
-        
+            raise ValueError(f"{field} required")
         did = did.strip()
-        
-        # Length validation
-        if len(did) < self.MIN_DID_LENGTH:
-            raise ValueError(
-                f"{field_name} too short: minimum {self.MIN_DID_LENGTH} characters"
-            )
-        
-        if len(did) > self.MAX_DID_LENGTH:
-            raise ValueError(
-                f"{field_name} too long: maximum {self.MAX_DID_LENGTH} characters"
-            )
-        
-        # Format validation (should follow W3C DID spec)
-        if not did.startswith('did:'):
-            logger.warning(
-                f"{field_name} does not follow W3C DID format (should start with 'did:'): {did[:50]}"
-            )
-        
-        # Check for invalid characters (basic sanitization)
+        if len(did) < self.MIN_DID_LENGTH or len(did) > self.MAX_DID_LENGTH:
+            raise ValueError(f"{field} length invalid")
         if not re.match(r'^[\w:.\-]+$', did):
-            raise ValueError(
-                f"{field_name} contains invalid characters. "
-                f"Allowed: alphanumeric, colon, period, hyphen"
-            )
-        
+            raise ValueError(f"{field} has invalid characters")
         return did
     
     def _validate_chain(self, chain: str) -> str:
-        """
-        Validate blockchain network.
-        
-        Args:
-            chain: Chain identifier
-            
-        Returns:
-            Normalized chain name (uppercase)
-            
-        Raises:
-            ValueError: If chain is not supported
-        """
-        if not chain or not isinstance(chain, str):
-            raise ValueError("Chain is required and must be a string")
-        
-        chain_upper = chain.upper().strip()
-        
-        if chain_upper not in self.SUPPORTED_CHAINS:
-            raise ValueError(
-                f"Unsupported chain: '{chain}'. "
-                f"Supported: {', '.join(self.SUPPORTED_CHAINS.keys())}"
-            )
-        
-        return chain_upper
+        if not chain:
+            raise ValueError("Chain required")
+        chain = chain.upper().strip()
+        if chain not in self.SUPPORTED_CHAINS:
+            raise ValueError(f"Unsupported chain: {chain}")
+        return chain
     
-    def _validate_metadata(self, metadata: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        """
-        Validate optional metadata.
-        
-        Args:
-            metadata: Metadata dictionary to validate
-            
-        Returns:
-            Validated metadata
-            
-        Raises:
-            ValueError: If metadata is invalid
-        """
+    def _validate_metadata(self, metadata: Optional[Dict]) -> Optional[Dict]:
         if metadata is None:
             return None
-        
         if not isinstance(metadata, dict):
-            raise ValueError("Metadata must be a dictionary")
-        
-        # Check size to prevent DoS
-        metadata_json = json.dumps(metadata)
-        if len(metadata_json) > self.MAX_METADATA_SIZE:
-            raise ValueError(
-                f"Metadata too large: {len(metadata_json)} bytes "
-                f"(max {self.MAX_METADATA_SIZE})"
-            )
-        
+            raise ValueError("Metadata must be dict")
+        if len(json.dumps(metadata)) > self.MAX_METADATA_SIZE:
+            raise ValueError("Metadata too large")
         return metadata
     
     def calculate_fee(self, amount: Decimal) -> Decimal:
-        """
-        Calculate transaction fee based on tiered structure.
-        
-        Uses three-tier model:
-        - Tier A (≤$10): $0.01 flat fee
-        - Tier B ($10-$10k): 1.0% of amount
-        - Tier C (>$10k): $10 + 0.5% of amount
-        
-        Args:
-            amount: Transaction amount (must be validated Decimal)
-            
-        Returns:
-            Fee amount as Decimal with high precision
-        """
-        # Tier A: Nano transactions (≤ $10)
         if amount <= self.TIER_A_THRESHOLD:
-            fee = self.tiers["NANO_FLAT"]
-            logger.debug(f"Tier A applied: ${fee} flat fee")
-            return fee
-        
-        # Tier B: Mid-range ($10 < amount ≤ $10k)
+            return self.tiers["NANO_FLAT"]
         if amount <= self.TIER_B_THRESHOLD:
-            fee = amount * self.tiers["MID_RATE"]
-            logger.debug(
-                f"Tier B applied: ${fee} "
-                f"({self.tiers['MID_RATE'] * 100}% of ${amount})"
-            )
-            return fee
-        
-        # Tier C: Enterprise (> $10k)
-        percentage_fee = amount * self.tiers["ENT_RATE"]
-        fee = percentage_fee + self.tiers["ENT_FLAT"]
-        logger.debug(
-            f"Tier C applied: ${fee} "
-            f"(${self.tiers['ENT_FLAT']} + {self.tiers['ENT_RATE'] * 100}% of ${amount})"
-        )
-        return fee
+            return amount * self.tiers["MID_RATE"]
+        return (amount * self.tiers["ENT_RATE"]) + self.tiers["ENT_FLAT"]
     
-    def _check_idempotency(self, idempotency_key: Optional[str]) -> bool:
-        """
-        Check if transaction has already been processed (LRU cache).
+    def _check_idempotency(self, key: Optional[str]) -> bool:
+        """Check if transaction already processed (DB-backed)."""
+        if not key:
+            return True
         
-        Args:
-            idempotency_key: Optional key for duplicate detection
-            
-        Returns:
-            True if transaction is new, False if duplicate
-        """
-        if not idempotency_key:
-            return True  # No key provided, allow transaction
-        
-        with self.tx_lock:
-            # Check if key exists
-            if idempotency_key in self.processed_transactions:
-                logger.warning(f"🔄 Duplicate transaction detected: {idempotency_key}")
-                return False
-            
-            # Add to cache with timestamp
-            self.processed_transactions[idempotency_key] = time.time()
-            
-            # Maintain LRU behavior - remove oldest if cache is full
-            if len(self.processed_transactions) > self.MAX_IDEMPOTENCY_CACHE_SIZE:
-                # Remove oldest (first item in OrderedDict)
-                oldest_key = next(iter(self.processed_transactions))
-                removed_time = self.processed_transactions.pop(oldest_key)
-                logger.debug(
-                    f"Removed old idempotency key: {oldest_key} "
-                    f"(age: {time.time() - removed_time:.0f}s)"
-                )
-        
-        return True
-    
-    def _log_settlement(self, settlement_record: Dict[str, Any]):
-        """
-        Write settlement to audit log in thread-safe manner with error handling.
-        
-        Args:
-            settlement_record: Settlement details to log
-        """
         try:
+            with self.db_lock, self._get_db_connection() as conn:
+                cursor = conn.execute(
+                    "SELECT tx_id, processed_at FROM processed_tx WHERE idempotency_key = ?",
+                    (key,)
+                )
+                result = cursor.fetchone()
+                
+                if result:
+                    logger.warning(f"🔄 Duplicate: {key} (TX: {result[0]})")
+                    return False
+                return True
+        except sqlite3.Error as e:
+            logger.error(f"DB error in idempotency: {e}")
+            return False  # Fail-safe: reject on DB error
+    
+    def _record_idempotency(self, key: str, tx_id: str, payer: str, payee: str, amount: Decimal):
+        """Persist idempotency record to survive restarts."""
+        try:
+            with self.db_lock, self._get_db_connection() as conn:
+                conn.execute(
+                    "INSERT INTO processed_tx VALUES (?, ?, ?, ?, ?, ?)",
+                    (key, tx_id, time.time(), payer, payee, str(amount))
+                )
+                conn.commit()
+        except sqlite3.Error as e:
+            logger.error(f"Failed to record idempotency: {e}")
+    
+    def _get_web3_provider(self, chain: str) -> Web3Provider:
+        if chain not in self.web3_providers:
+            self.web3_providers[chain] = Web3Provider(chain)
+        return self.web3_providers[chain]
+    
+    def _log_settlement(self, record: Dict[str, Any]):
+        """Log settlement with PII scrubbing."""
+        try:
+            if 'metadata' in record:
+                record['metadata'] = self.pii_protection.scrub_metadata(record['metadata'])
+            
             with self.file_lock:
-                # Append to JSONL file (one JSON object per line)
                 with open(self.settlement_log_path, 'a', encoding='utf-8') as f:
-                    json.dump(settlement_record, f, default=str, ensure_ascii=False)
+                    json.dump(record, f, default=str)
                     f.write('\n')
-                    f.flush()  # Ensure write is committed
-        except IOError as e:
-            logger.error(f"❌ Failed to write settlement log: {e}")
-            # Don't fail the transaction just because logging failed
-            # The return value still contains all the information
+                    f.flush()
         except Exception as e:
-            logger.error(f"❌ Unexpected error in settlement logging: {e}", exc_info=True)
+            logger.error(f"❌ Log failed: {e}")
     
     def process_settlement(
-        self,
-        payer_did: str,
-        amount_usd: Any,
-        payee_did: str,
-        chain: str,
-        idempotency_key: Optional[str] = None,
+        self, payer_did: str, amount_usd: Any, payee_did: str,
+        chain: str, idempotency_key: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Process a financial settlement transaction with full validation and audit trail.
+        Process settlement with full validation, DB persistence, and blockchain integration.
         
-        This is the main entry point for processing payments through the UAIP network.
-        
-        Steps:
-        1. Validate all inputs (DIDs, amount, chain)
-        2. Check for duplicate transactions (idempotency)
-        3. Prevent self-payments (configurable)
-        4. Calculate fees based on tier
-        5. Calculate payout (amount - fee)
-        6. Generate transaction ID
-        7. Log to audit trail
-        8. Update statistics
-        9. Return settlement result
-        
-        Args:
-            payer_did: DID of the paying agent
-            amount_usd: Amount in USD (converted to Decimal internally)
-            payee_did: DID of the receiving agent/service
-            chain: Blockchain network for settlement (BASE, SOLANA, etc.)
-            idempotency_key: Optional key to prevent duplicate processing
-            metadata: Optional additional transaction metadata
-            
-        Returns:
-            Settlement result dictionary containing:
-            - status: "SUCCESS"
-            - tx_id: Unique transaction identifier
-            - amount: Transaction amount
-            - fee: Calculated fee
-            - payout: Amount after fee deduction
-            - chain: Settlement blockchain
-            - currency: Settlement currency (USDC)
-            - timestamp: Settlement timestamp
-            - processing_time_ms: Processing duration
-            
-        Raises:
-            ValueError: If inputs are invalid or business rules violated
-            RuntimeError: If settlement processing fails unexpectedly
-            
-        Example:
-            >>> engine = UAIPFinancialEngine()
-            >>> result = engine.process_settlement(
-            ...     payer_did="did:uaip:acme:abc123",
-            ...     amount_usd=100.00,
-            ...     payee_did="did:uaip:provider:def456",
-            ...     chain="BASE"
-            ... )
-            >>> print(result['status'])  # "SUCCESS"
+        Returns string-based amounts to prevent float rounding in frontend.
         """
-        start_time = time.time()
+        start = time.time()
         
         try:
-            # === STEP 1: INPUT VALIDATION ===
-            validated_payer = self._validate_did(payer_did, "Payer DID")
-            validated_payee = self._validate_did(payee_did, "Payee DID")
+            # Validation
+            payer = self._validate_did(payer_did, "Payer")
+            payee = self._validate_did(payee_did, "Payee")
             validated_chain = self._validate_chain(chain)
-            validated_amount = self._validate_amount(amount_usd)
-            validated_metadata = self._validate_metadata(metadata)
+            amount = self._validate_amount(amount_usd)
+            meta = self._validate_metadata(metadata)
             
-            # === STEP 2: IDEMPOTENCY CHECK ===
+            # Idempotency check (DB-backed)
             if not self._check_idempotency(idempotency_key):
-                raise ValueError(
-                    f"Duplicate transaction detected. "
-                    f"Idempotency key already processed: {idempotency_key}"
-                )
+                raise ValueError(f"Duplicate transaction: {idempotency_key}")
             
-            # === STEP 3: BUSINESS RULE VALIDATION ===
-            # Prevent self-payments (configurable)
-            if not self.enable_self_payment and validated_payer == validated_payee:
-                raise ValueError(
-                    "Self-payment not allowed: payer and payee cannot be the same DID"
-                )
+            # Business rules
+            if not self.enable_self_payment and payer == payee:
+                raise ValueError("Self-payment not allowed")
             
-            # === STEP 4: FEE CALCULATION ===
-            fee = self.calculate_fee(validated_amount)
-            # Round fee to appropriate precision (6 decimals for micro-dollar precision)
-            fee = fee.quantize(self.FEE_PRECISION, rounding=ROUND_DOWN)
+            # Fee calculation
+            fee = self.calculate_fee(amount).quantize(self.FEE_PRECISION, rounding=ROUND_DOWN)
+            payout = (amount - fee).quantize(self.FEE_PRECISION, rounding=ROUND_DOWN)
             
-            # === STEP 5: PAYOUT CALCULATION ===
-            payout = validated_amount - fee
-            
-            # Ensure payout is non-negative
             if payout < 0:
-                raise ValueError(
-                    f"Fee (${fee}) exceeds transaction amount (${validated_amount}). "
-                    f"This should not happen - please report this bug."
-                )
+                raise ValueError("Fee exceeds amount")
             
-            # Round payout to same precision
-            payout = payout.quantize(self.FEE_PRECISION, rounding=ROUND_DOWN)
-            
-            # === STEP 6: TRANSACTION ID GENERATION ===
+            # Generate TX ID
             tx_id = f"uaip_tx_{uuid.uuid4().hex[:16]}"
             
-            # Determine tier for statistics
-            if validated_amount <= self.TIER_A_THRESHOLD:
+            # Determine tier
+            if amount <= self.TIER_A_THRESHOLD:
                 tier = "A"
-            elif validated_amount <= self.TIER_B_THRESHOLD:
+            elif amount <= self.TIER_B_THRESHOLD:
                 tier = "B"
             else:
                 tier = "C"
             
-            # === STEP 7: SETTLEMENT RECORD PREPARATION ===
-            settlement_record = {
+            # Blockchain settlement (placeholder)
+            web3 = self._get_web3_provider(validated_chain)
+            blockchain_result = web3.send_usdc_transaction(
+                from_address="treasury_wallet",  # In production: resolve from treasury DID
+                to_address="payee_wallet",  # In production: resolve from payee DID
+                amount_usdc=payout,
+                decimals=self.SUPPORTED_CHAINS[validated_chain]['decimals']
+            )
+            
+            # Settlement record
+            record = {
                 'tx_id': tx_id,
                 'timestamp': time.time(),
                 'datetime_utc': datetime.utcnow().isoformat() + 'Z',
-                'payer_did': validated_payer,
-                'payee_did': validated_payee,
-                'amount_usd': str(validated_amount),
+                'payer_did': payer,
+                'payee_did': payee,
+                'amount_usd': str(amount),  # STRING for precision
                 'fee_usd': str(fee),
                 'payout_usd': str(payout),
                 'fee_tier': tier,
                 'chain': validated_chain,
                 'chain_currency': self.SUPPORTED_CHAINS[validated_chain]['currency'],
-                'chain_decimals': self.SUPPORTED_CHAINS[validated_chain]['decimals'],
                 'treasury_did': self.hq_treasury,
+                'blockchain_tx_hash': blockchain_result.get('tx_hash'),
+                'blockchain_status': blockchain_result.get('status'),
                 'idempotency_key': idempotency_key,
-                'metadata': validated_metadata or {},
-                'processing_time_ms': None,  # Filled after processing
-                'version': '1.0.0'
+                'metadata': meta or {},
+                'version': '2.0.0'
             }
             
-            # === STEP 8: LOGGING (Simulated blockchain settlement) ===
-            # In production, this would:
-            # 1. Call blockchain RPC to create USDC transfer transaction
-            # 2. Wait for confirmations
-            # 3. Verify transaction on-chain
-            # 4. Handle failures and retries
-            
             logger.info(
-                f"💰 SETTLEMENT PROCESSED:\n"
-                f"  📋 TX ID: {tx_id}\n"
-                f"  💵 Amount: ${validated_amount} USD\n"
-                f"  🏦 Fee: ${fee} USD ({(fee / validated_amount * 100):.4f}%) [Tier {tier}]\n"
-                f"  💸 Payout: ${payout} USD\n"
-                f"  👤 Payer: {validated_payer}\n"
-                f"  👤 Payee: {validated_payee}\n"
-                f"  ⛓️  Chain: {validated_chain} ({self.SUPPORTED_CHAINS[validated_chain]['name']})\n"
-                f"  🏛️  Treasury: {self.hq_treasury}"
+                f"💰 SETTLEMENT:\n"
+                f"  TX: {tx_id}\n"
+                f"  Amount: ${amount} | Fee: ${fee} | Payout: ${payout}\n"
+                f"  {payer} → {payee}\n"
+                f"  Chain: {validated_chain} | Blockchain TX: {blockchain_result.get('tx_hash')}"
             )
             
-            # === STEP 9: STATISTICS UPDATE ===
+            # Update stats
             with self.stats_lock:
                 self.stats['total_transactions'] += 1
-                self.stats['total_volume'] += validated_amount
+                self.stats['total_volume'] += amount
                 self.stats['total_fees_collected'] += fee
-                
-                # Tier-specific statistics
-                if tier == "A":
-                    self.stats['tier_a_count'] += 1
-                elif tier == "B":
-                    self.stats['tier_b_count'] += 1
-                else:
-                    self.stats['tier_c_count'] += 1
+                self.stats[f'tier_{tier.lower()}_count'] += 1
             
-            # === STEP 10: FINALIZATION ===
-            # Calculate processing time
-            processing_time = (time.time() - start_time) * 1000  # Convert to milliseconds
-            settlement_record['processing_time_ms'] = round(processing_time, 2)
+            # Persist idempotency
+            if idempotency_key:
+                self._record_idempotency(idempotency_key, tx_id, payer, payee, amount)
             
-            # Write to audit log (non-blocking, errors don't fail transaction)
-            self._log_settlement(settlement_record)
+            # Store in settlements table
+            try:
+                with self.db_lock, self._get_db_connection() as conn:
+                    conn.execute(
+                        """INSERT INTO settlements 
+                           (tx_id, timestamp, payer_did, payee_did, amount_usd, fee_usd, 
+                            payout_usd, fee_tier, chain, blockchain_tx_hash, status)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (tx_id, time.time(), payer, payee, str(amount), str(fee),
+                         str(payout), tier, validated_chain, blockchain_result.get('tx_hash'), 'completed')
+                    )
+                    conn.commit()
+            except sqlite3.Error as e:
+                logger.error(f"Failed to store settlement: {e}")
             
-            # === STEP 11: RETURN RESULT ===
+            # Log to JSONL (with PII scrubbing)
+            processing_time = (time.time() - start) * 1000
+            record['processing_time_ms'] = round(processing_time, 2)
+            self._log_settlement(record)
+            
+            # Return with STRING amounts (critical for frontend precision)
             return {
                 'status': 'SUCCESS',
                 'tx_id': tx_id,
-                'amount': float(validated_amount),
-                'fee': float(fee),
-                'payout': float(payout),
-                'fee_percentage': float((fee / validated_amount * 100)) if validated_amount > 0 else 0,
+                'amount': str(amount),  # STRING
+                'fee': str(fee),  # STRING
+                'payout': str(payout),  # STRING
+                'fee_percentage': str((fee / amount * 100) if amount > 0 else 0),  # STRING
                 'tier': tier,
                 'chain': validated_chain,
                 'currency': self.SUPPORTED_CHAINS[validated_chain]['currency'],
-                'timestamp': settlement_record['timestamp'],
+                'blockchain_tx_hash': blockchain_result.get('tx_hash'),
+                'timestamp': record['timestamp'],
                 'processing_time_ms': processing_time
             }
             
         except ValueError as e:
-            # Business logic errors (validation failures, duplicate transactions, etc.)
             with self.stats_lock:
                 self.stats['failed_transactions'] += 1
-            
-            logger.warning(f"⚠️  Settlement validation failed: {e}")
+            logger.warning(f"⚠️  Validation failed: {e}")
             raise
-            
         except Exception as e:
-            # Unexpected system errors
             with self.stats_lock:
                 self.stats['failed_transactions'] += 1
-            
-            logger.error(f"❌ Settlement processing error: {e}", exc_info=True)
+            logger.error(f"❌ Settlement error: {e}", exc_info=True)
             raise RuntimeError(f"Settlement failed: {e}")
     
     def get_statistics(self) -> Dict[str, Any]:
-        """
-        Get comprehensive engine statistics in a thread-safe manner.
-        
-        Returns:
-            Dictionary containing financial and operational statistics
-        """
         with self.stats_lock:
-            # Calculate derived statistics
-            avg_transaction = Decimal('0')
+            avg_tx = Decimal('0')
             avg_fee = Decimal('0')
-            avg_fee_percentage = Decimal('0')
+            avg_fee_pct = Decimal('0')
             
             if self.stats['total_transactions'] > 0:
-                avg_transaction = self.stats['total_volume'] / self.stats['total_transactions']
+                avg_tx = self.stats['total_volume'] / self.stats['total_transactions']
                 avg_fee = self.stats['total_fees_collected'] / self.stats['total_transactions']
-                
                 if self.stats['total_volume'] > 0:
-                    avg_fee_percentage = (
-                        self.stats['total_fees_collected'] / self.stats['total_volume'] * 100
-                    )
+                    avg_fee_pct = self.stats['total_fees_collected'] / self.stats['total_volume'] * 100
             
             return {
                 'total_transactions': self.stats['total_transactions'],
-                'successful_transactions': self.stats['total_transactions'] - self.stats['failed_transactions'],
-                'failed_transactions': self.stats['failed_transactions'],
-                'total_volume_usd': float(self.stats['total_volume']),
-                'total_fees_collected_usd': float(self.stats['total_fees_collected']),
-                'average_transaction_usd': float(avg_transaction),
-                'average_fee_usd': float(avg_fee),
-                'average_fee_percentage': float(avg_fee_percentage),
-                'tier_breakdown': {
-                    'tier_a': self.stats['tier_a_count'],
-                    'tier_b': self.stats['tier_b_count'],
-                    'tier_c': self.stats['tier_c_count']
-                },
-                'idempotency_cache_size': len(self.processed_transactions)
+                'successful': self.stats['total_transactions'] - self.stats['failed_transactions'],
+                'failed': self.stats['failed_transactions'],
+                'total_volume_usd': str(self.stats['total_volume']),  # STRING
+                'total_fees_usd': str(self.stats['total_fees_collected']),  # STRING
+                'avg_transaction_usd': str(avg_tx),  # STRING
+                'avg_fee_usd': str(avg_fee),  # STRING
+                'avg_fee_percentage': str(avg_fee_pct),  # STRING
+                'tiers': {
+                    'A': self.stats['tier_a_count'],
+                    'B': self.stats['tier_b_count'],
+                    'C': self.stats['tier_c_count']
+                }
             }
-    
-    def reset_statistics(self):
-        """Reset all statistics (for testing/admin purposes only)."""
-        with self.stats_lock:
-            self.stats = {
-                'total_transactions': 0,
-                'total_volume': Decimal('0'),
-                'total_fees_collected': Decimal('0'),
-                'failed_transactions': 0,
-                'tier_a_count': 0,
-                'tier_b_count': 0,
-                'tier_c_count': 0
-            }
-        logger.warning("⚠️  Statistics reset - this should only be done in testing!")
     
     def calculate_projected_fee(self, amount: Any) -> Dict[str, Any]:
-        """
-        Calculate projected fee without processing transaction.
+        """Calculate fee without processing (for UI)."""
+        amount_dec = self._validate_amount(amount)
+        fee = self.calculate_fee(amount_dec).quantize(self.FEE_PRECISION, rounding=ROUND_DOWN)
+        payout = amount_dec - fee
         
-        Useful for UI displays, cost estimates, and pre-transaction calculations.
-        
-        Args:
-            amount: Amount to calculate fee for
-            
-        Returns:
-            Dictionary with complete fee breakdown
-            
-        Raises:
-            ValueError: If amount is invalid
-        """
-        try:
-            validated_amount = self._validate_amount(amount)
-            fee = self.calculate_fee(validated_amount)
-            fee = fee.quantize(self.FEE_PRECISION, rounding=ROUND_DOWN)
-            payout = validated_amount - fee
-            
-            # Determine tier
-            if validated_amount <= self.TIER_A_THRESHOLD:
-                tier = "A"
-                tier_name = "Nano"
-            elif validated_amount <= self.TIER_B_THRESHOLD:
-                tier = "B"
-                tier_name = "Mid-Range"
-            else:
-                tier = "C"
-                tier_name = "Enterprise"
-            
-            fee_percentage = (fee / validated_amount * 100) if validated_amount > 0 else Decimal('0')
-            
-            return {
-                'amount': float(validated_amount),
-                'fee': float(fee),
-                'payout': float(payout),
-                'fee_percentage': float(fee_percentage),
-                'tier': tier,
-                'tier_name': tier_name,
-                'tier_description': self._get_tier_description(tier)
-            }
-        except ValueError as e:
-            logger.warning(f"Fee projection failed: {e}")
-            raise
-    
-    def _get_tier_description(self, tier: str) -> str:
-        """Get human-readable tier description."""
-        descriptions = {
-            'A': f'Flat fee of ${self.tiers["NANO_FLAT"]} for transactions ≤ ${self.TIER_A_THRESHOLD}',
-            'B': f'{self.tiers["MID_RATE"] * 100}% fee for transactions ${self.TIER_A_THRESHOLD} - ${self.TIER_B_THRESHOLD}',
-            'C': f'${self.tiers["ENT_FLAT"]} + {self.tiers["ENT_RATE"] * 100}% fee for transactions > ${self.TIER_B_THRESHOLD}'
-        }
-        return descriptions.get(tier, 'Unknown tier')
-    
-    def health_check(self) -> Dict[str, Any]:
-        """
-        Perform health check on the financial engine.
-        
-        Returns:
-            Health status and metrics
-        """
-        try:
-            # Check if log directory is writable
-            test_file = self.log_dir / ".health_check"
-            test_file.write_text("ok")
-            test_file.unlink()
-            log_writable = True
-        except Exception:
-            log_writable = False
-        
-        stats = self.get_statistics()
+        if amount_dec <= self.TIER_A_THRESHOLD:
+            tier, name = "A", "Nano"
+        elif amount_dec <= self.TIER_B_THRESHOLD:
+            tier, name = "B", "Mid-Range"
+        else:
+            tier, name = "C", "Enterprise"
         
         return {
-            'status': 'healthy' if log_writable else 'degraded',
-            'log_directory': str(self.log_dir),
-            'log_writable': log_writable,
-            'treasury_did': self.hq_treasury,
-            'supported_chains': list(self.SUPPORTED_CHAINS.keys()),
-            'statistics': stats
+            'amount': str(amount_dec),  # STRING
+            'fee': str(fee),  # STRING
+            'payout': str(payout),  # STRING
+            'fee_percentage': str((fee / amount_dec * 100) if amount_dec > 0 else 0),  # STRING
+            'tier': tier,
+            'tier_name': name
+        }
+    
+    def health_check(self) -> Dict[str, Any]:
+        try:
+            test_file = self.log_dir / ".health"
+            test_file.write_text("ok")
+            test_file.unlink()
+            log_ok = True
+        except:
+            log_ok = False
+        
+        try:
+            with self._get_db_connection() as conn:
+                conn.execute("SELECT 1")
+            db_ok = True
+        except:
+            db_ok = False
+        
+        return {
+            'status': 'healthy' if (log_ok and db_ok) else 'degraded',
+            'log_writable': log_ok,
+            'database_ok': db_ok,
+            'db_path': self.db_path,
+            'treasury': self.hq_treasury,
+            'chains': list(self.SUPPORTED_CHAINS.keys()),
+            'stats': self.get_statistics()
         }
 
 
-# === FACTORY FUNCTION ===
 def get_financial_engine(
-    log_dir: str = ".",
-    treasury_did: Optional[str] = None
+    log_dir: str = ".", treasury_did: Optional[str] = None
 ) -> UAIPFinancialEngine:
-    """
-    Get or create a singleton financial engine instance.
-    
-    This ensures only one engine instance exists per process,
-    maintaining consistent statistics and idempotency tracking.
-    
-    Args:
-        log_dir: Directory for settlement logs
-        treasury_did: Optional treasury DID override
-        
-    Returns:
-        Singleton UAIPFinancialEngine instance
-    """
+    """Singleton factory for financial engine."""
     if not hasattr(get_financial_engine, '_instance'):
         get_financial_engine._instance = UAIPFinancialEngine(
-            log_dir=log_dir,
-            treasury_did=treasury_did
+            log_dir=log_dir, treasury_did=treasury_did
         )
     return get_financial_engine._instance
