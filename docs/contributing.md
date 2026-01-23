@@ -657,8 +657,8 @@ We host virtual office hours:
 
 - [QUICKSTART.md](QUICKSTART.md) - Get started in 5 minutes
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System design
-- [API.md](API.md) - API reference
-- [INTEGRATIONS.md](INTEGRATIONS.md) - Framework guides
+- [api_docs.md](api_docs.md) - API reference
+- [integrations_guide.md](integrations_guide.md) - Framework guides
 
 ---
 
